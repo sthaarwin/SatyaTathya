@@ -1,0 +1,6 @@
+plan.md
+venv
+.env
+downloads
+__pycache__
+satya_cache.db

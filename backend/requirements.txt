@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+yt-dlp
+ffmpeg-python
+python-dotenv
+pydantic
+google-genai
