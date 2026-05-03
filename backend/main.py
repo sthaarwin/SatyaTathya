@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import os
 from contextlib import asynccontextmanager
+from fastapi.middleware.cors import CORSMiddleware
 
 from services.video_service import download_video
 from services.analysis_service import analyze_video_with_gemini
@@ -17,6 +18,14 @@ app = FastAPI(
     title="SatyaTathya API", 
     description="Backend for Multimodal Fact-Checking",
     lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 class AnalyzeRequest(BaseModel):

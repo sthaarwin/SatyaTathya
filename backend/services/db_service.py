@@ -44,6 +44,9 @@ def save_verification(claim, findings, final_score):
     conn.commit()
     conn.close()
 
+# Initialize tables
+init_db()
+
 def get_cached_analysis_by_url(url):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
