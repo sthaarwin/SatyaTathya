@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "satya_cache.db")
 
@@ -17,7 +18,29 @@ def init_db():
         
     # Create an index on the video hash to make visual lookups lightning fast
     c.execute('CREATE INDEX IF NOT EXISTS idx_video_hash ON analysis_cache(video_hash)')
+    
+    # Create verification cache to save tokens
+    c.execute('''CREATE TABLE IF NOT EXISTS verification_cache
+                 (claim TEXT PRIMARY KEY, findings TEXT, final_score REAL)''')
         
+    conn.commit()
+    conn.close()
+
+def get_cached_verification(claim):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT findings, final_score FROM verification_cache WHERE claim = ?', (claim,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {"findings": json.loads(row[0]), "final_score": row[1]}
+    return None
+
+def save_verification(claim, findings, final_score):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''INSERT OR REPLACE INTO verification_cache (claim, findings, final_score)
+                 VALUES (?, ?, ?)''', (claim, json.dumps(findings), final_score))
     conn.commit()
     conn.close()
 

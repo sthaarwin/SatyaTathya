@@ -7,3 +7,9 @@ pydantic
 google-genai
 imagehash
 Pillow
+chromadb
+sentence-transformers
+firecrawl-py
+crawl4ai 
+duckduckgo-search 
+playwright
