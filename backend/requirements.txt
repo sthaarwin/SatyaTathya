@@ -5,3 +5,5 @@ ffmpeg-python
 python-dotenv
 pydantic
 google-genai
+imagehash
+Pillow
