@@ -7,8 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from services.video_service import download_video
 from services.analysis_service import analyze_video_with_gemini
 from services.fingerprint_service import generate_video_fingerprint
-from services.db_service import init_db, get_cached_analysis_by_url, get_cached_analysis_by_hash, save_analysis, get_cached_verification, save_verification
-from services.chroma_service import add_claim_to_db
+from services.db_service import init_db, get_cached_analysis_by_url, get_cached_analysis_by_hash, save_analysis, get_cached_verification, save_verification, get_all_cached_analyses, clear_cache
+from services.chroma_service import add_claim_to_db, search_similar_claims, collection, clear_chroma
 from services.verification_service import verify_claim
 
 @asynccontextmanager
@@ -124,3 +124,40 @@ def analyze_url(request: AnalyzeRequest):
             metadata["truth_score"] = verification.get("neutrosophic", {}).get("T", 0.5)
         
     return {"status": "success", "match_type": "ai_analysis", "data": analysis_result}
+
+class SearchRequest(BaseModel):
+    query: str
+
+@app.post("/api/search")
+def search_claims(request: SearchRequest):
+    query = request.query
+    if not query:
+        raise HTTPException(status_code=400, detail="Query is required")
+    
+    results = search_similar_claims(query, threshold=2.0)
+    return {"status": "success", "query": query, "results": results, "count": len(results)}
+
+@app.get("/api/stats")
+def get_stats():
+    cached_analyses = get_all_cached_analyses()
+    chroma_count = collection.count()
+    
+    true_count = sum(1 for c in cached_analyses if c.get("truth_score", 0) > 0.6)
+    false_count = sum(1 for c in cached_analyses if c.get("truth_score", 0) < 0.4)
+    uncertain_count = len(cached_analyses) - true_count - false_count
+    
+    return {
+        "total_analyses": len(cached_analyses),
+        "chroma_vectors": chroma_count,
+        "verdicts": {
+            "likely_true": true_count,
+            "likely_false": false_count,
+            "uncertain": uncertain_count
+        }
+    }
+
+@app.post("/api/cache/clear")
+def clear_cache_endpoint():
+    db_cleared = clear_cache()
+    chroma_cleared = clear_chroma()
+    return {"status": "success", "message": f"Cleared {db_cleared} cache entries and {chroma_cleared} ChromaDB vectors"}

@@ -96,3 +96,13 @@ def get_all_cached_analyses():
     rows = c.fetchall()
     conn.close()
     return [{"url": r[0], "spoken_claim": r[1], "written_claim": r[2], "core_news_claim": r[3], "video_hash": r[4]} for r in rows]
+
+def clear_cache():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('DELETE FROM analysis_cache')
+    c.execute('DELETE FROM verification_cache')
+    count = c.rowcount
+    conn.commit()
+    conn.close()
+    return count

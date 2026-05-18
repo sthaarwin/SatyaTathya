@@ -53,3 +53,13 @@ def compute_similarity(text1: str, text2: str) -> float:
     emb2 = model.encode(text2)
     similarity = np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2))
     return float(similarity)
+
+def clear_chroma():
+    """Clear all vectors from ChromaDB."""
+    try:
+        all_ids = collection.get().get('ids', [])
+        if all_ids:
+            collection.delete(ids=all_ids)
+        return len(all_ids)
+    except:
+        return 0
