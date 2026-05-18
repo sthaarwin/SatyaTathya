@@ -19,9 +19,10 @@ def init_db():
     # Create an index on the video hash to make visual lookups lightning fast
     c.execute('CREATE INDEX IF NOT EXISTS idx_video_hash ON analysis_cache(video_hash)')
     
-    # Create verification cache to save tokens
+    # Create verification cache (drop old table if exists with old schema)
+    c.execute('DROP TABLE IF EXISTS verification_cache')
     c.execute('''CREATE TABLE IF NOT EXISTS verification_cache
-                 (claim TEXT PRIMARY KEY, findings TEXT, final_score REAL)''')
+                 (claim TEXT PRIMARY KEY, verification_json TEXT)''')
         
     conn.commit()
     conn.close()
@@ -29,18 +30,18 @@ def init_db():
 def get_cached_verification(claim):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('SELECT findings, final_score FROM verification_cache WHERE claim = ?', (claim,))
+    c.execute('SELECT verification_json FROM verification_cache WHERE claim = ?', (claim,))
     row = c.fetchone()
     conn.close()
     if row:
-        return {"findings": json.loads(row[0]), "final_score": row[1]}
+        return json.loads(row[0])
     return None
 
-def save_verification(claim, findings, final_score):
+def save_verification(claim, verification_data):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('''INSERT OR REPLACE INTO verification_cache (claim, findings, final_score)
-                 VALUES (?, ?, ?)''', (claim, json.dumps(findings), final_score))
+    c.execute('''INSERT OR REPLACE INTO verification_cache (claim, verification_json)
+                 VALUES (?, ?)''', (claim, json.dumps(verification_data)))
     conn.commit()
     conn.close()
 
@@ -87,3 +88,11 @@ def save_analysis(url, video_hash, data):
                  VALUES (?, ?, ?, ?, ?)''', (url, video_hash, data.get("spoken_claim"), data.get("written_claim"), data.get("core_news_claim")))
     conn.commit()
     conn.close()
+
+def get_all_cached_analyses():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT url, spoken_claim, written_claim, core_news_claim, video_hash FROM analysis_cache')
+    rows = c.fetchall()
+    conn.close()
+    return [{"url": r[0], "spoken_claim": r[1], "written_claim": r[2], "core_news_claim": r[3], "video_hash": r[4]} for r in rows]

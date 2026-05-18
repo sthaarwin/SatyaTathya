@@ -2,15 +2,16 @@ import os
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
+import numpy as np
 
-# Initialize ChromaDB client to store data locally
+
 CHROMA_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chroma_data")
 os.makedirs(CHROMA_DB_PATH, exist_ok=True)
 
 chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
 collection = chroma_client.get_or_create_collection(name="satya_claims")
 
-# Initialize embedding model (using a lightweight model suitable for semantic matching)
+# Initialize embedding model
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
 def encode_text(text: str):
@@ -28,10 +29,6 @@ def add_claim_to_db(claim_id: str, core_news_claim: str, metadata: dict):
     )
 
 def search_similar_claims(core_news_claim: str, threshold: float = 1.0):
-    """
-    Search ChromaDB for semantically similar claims.
-    Using L2 distance. Lower distance means higher similarity.
-    """
     embedding = encode_text(core_news_claim)
     results = collection.query(
         query_embeddings=[embedding],
@@ -41,7 +38,7 @@ def search_similar_claims(core_news_claim: str, threshold: float = 1.0):
     matches = []
     if results['distances'] and results['distances'][0]:
         for i, distance in enumerate(results['distances'][0]):
-            if distance < threshold: # If distance is small enough, it's a match
+            if distance < threshold:
                 matches.append({
                     "id": results['ids'][0][i],
                     "document": results['documents'][0][i],
@@ -49,3 +46,10 @@ def search_similar_claims(core_news_claim: str, threshold: float = 1.0):
                     "distance": distance
                 })
     return matches
+
+def compute_similarity(text1: str, text2: str) -> float:
+    """Compute cosine similarity between two texts using embeddings."""
+    emb1 = model.encode(text1)
+    emb2 = model.encode(text2)
+    similarity = np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2))
+    return float(similarity)

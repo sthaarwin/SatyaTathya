@@ -4,3 +4,5 @@ venv
 downloads
 __pycache__
 satya_cache.db
+*sqlite3
+chroma_data

@@ -43,9 +43,7 @@ def generate_video_fingerprint(file_path: str) -> str:
         except Exception as e:
             hashes.append("ERROR")
             
-    # Clean up the exacted frame
     if os.path.exists(temp_img):
         os.remove(temp_img)
         
-    # Return the combined hash signature (e.g., "e3c1d42a-8b9e1122-f1a2b3c4")
     return "-".join(hashes)

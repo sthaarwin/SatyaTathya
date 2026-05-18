@@ -13,3 +13,5 @@ firecrawl-py
 crawl4ai 
 duckduckgo-search 
 playwright
+newspaper3k
+lxml_html_clean

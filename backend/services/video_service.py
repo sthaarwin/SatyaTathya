@@ -29,8 +29,6 @@ def download_video(url: str):
             info_dict = ydl.extract_info(url, download=True)
             video_title = info_dict.get('title', 'Unknown Title')
             
-            # Use FFmpeg to enforce H.264 codec (no HEVC) and compress via CRF
-            # Adding pix_fmt='yuv420p' provides the widest compatibility across media players
             try:
                 (
                     ffmpeg
