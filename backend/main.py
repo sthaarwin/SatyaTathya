@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import os
+import json
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,6 +11,8 @@ from services.fingerprint_service import generate_video_fingerprint
 from services.db_service import init_db, get_cached_analysis_by_url, get_cached_analysis_by_hash, save_analysis, get_cached_verification, save_verification, get_all_cached_analyses, clear_cache
 from services.chroma_service import add_claim_to_db, search_similar_claims, collection, clear_chroma
 from services.verification_service import verify_claim
+
+MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -154,6 +157,31 @@ def get_stats():
             "likely_false": false_count,
             "uncertain": uncertain_count
         }
+    }
+
+@app.get("/api/comparison")
+def get_method_comparison():
+    comparison_path = os.path.join(MODELS_DIR, "method_comparison_results.json")
+    classical_path = os.path.join(MODELS_DIR, "climate_fever_classical_results.json")
+
+    for path in [comparison_path, classical_path]:
+        if os.path.exists(path):
+            with open(path, "r") as file:
+                data = json.load(file)
+            if isinstance(data, list):
+                return {
+                    "dataset": "rexarski/climate_fever_fixed",
+                    "split": "train",
+                    "test_size": data[0].get("test_size", 0) if data else 0,
+                    "metrics": data
+                }
+            return data
+
+    return {
+        "dataset": "rexarski/climate_fever_fixed",
+        "split": "train",
+        "test_size": 0,
+        "metrics": []
     }
 
 @app.post("/api/cache/clear")

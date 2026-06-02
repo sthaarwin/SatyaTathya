@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 interface AnalysisResult {
   spoken_claim?: string;
@@ -12,12 +12,83 @@ interface AnalysisResult {
   };
 }
 
+interface MethodMetric {
+  model: string;
+  accuracy: number;
+  macro_f1: number;
+  weighted_f1: number;
+}
+
+interface ComparisonResult {
+  dataset?: string;
+  split?: string;
+  test_size?: number;
+  metrics?: MethodMetric[];
+}
+
+const fallbackComparison: ComparisonResult = {
+  dataset: 'rexarski/climate_fever_fixed',
+  split: 'train',
+  test_size: 860,
+  metrics: [
+    { model: 'random_forest', accuracy: 0.6895, macro_f1: 0.5063, weighted_f1: 0.6465 },
+    { model: 'svm', accuracy: 0.6628, macro_f1: 0.5607, weighted_f1: 0.6593 },
+    { model: 'logreg', accuracy: 0.6326, macro_f1: 0.5546, weighted_f1: 0.6403 },
+  ],
+};
+
+const methodLabel = (model: string) =>
+  model
+    .replace('random_forest_tuned_rich', 'Random Forest Tuned')
+    .replace('random_forest', 'Random Forest')
+    .replace('logreg', 'Logistic Regression')
+    .replace('svm', 'Linear SVM')
+    .replace('heuristic', 'Heuristic')
+    .replace('_rich', ' Rich');
+
+function MetricBars({ metrics, field }: { metrics: MethodMetric[]; field: keyof Pick<MethodMetric, 'accuracy' | 'macro_f1' | 'weighted_f1'> }) {
+  return (
+    <div className="space-y-sm">
+      {metrics.map((metric) => {
+        const value = Math.round(metric[field] * 1000) / 10;
+        return (
+          <div key={`${metric.model}-${field}`} className="grid grid-cols-[132px_1fr_48px] items-center gap-sm">
+            <span className="font-label-sm text-label-sm text-on-surface-variant truncate">{methodLabel(metric.model)}</span>
+            <div className="h-3 bg-surface-container-high rounded-full overflow-hidden">
+              <div className="h-full bg-primary" style={{ width: `${value}%` }} />
+            </div>
+            <span className="font-label-sm text-label-sm text-on-surface text-right">{value.toFixed(1)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Home() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [analysisId, setAnalysisId] = useState('');
+  const [comparison, setComparison] = useState<ComparisonResult>(fallbackComparison);
+
+  useEffect(() => {
+    const fetchComparison = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/comparison');
+        if (!response.ok) return;
+        const data: ComparisonResult = await response.json();
+        if (data.metrics?.length) {
+          setComparison(data);
+        }
+      } catch {
+        setComparison(fallbackComparison);
+      }
+    };
+
+    fetchComparison();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +122,7 @@ export default function Home() {
   const score = result?.verification?.final_score;
   const scoreNum = score !== undefined && score !== null ? Number(score) : null;
   const gaugePercent = scoreNum !== null ? Math.round(scoreNum * 100) : 0;
+  const comparisonMetrics = [...(comparison.metrics || [])].sort((a, b) => b.macro_f1 - a.macro_f1);
 
   return (
     <>
@@ -272,6 +344,33 @@ export default function Home() {
             )}
           </section>
         </div>
+
+        <section className="mt-gutter bg-white border border-outline-variant newspaper-shadow p-lg">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-sm border-b border-outline-variant pb-md mb-md">
+            <div>
+              <h3 className="font-headline-sm text-headline-sm text-primary">Method Comparison</h3>
+              <p className="font-label-sm text-label-sm text-on-surface-variant uppercase mt-xs">
+                {comparison.dataset || 'Climate-FEVER'} • {comparison.split || 'benchmark'} • {comparison.test_size || 0} samples
+              </p>
+            </div>
+            <span className="font-label-sm text-label-sm text-on-surface-variant">Sorted by macro F1</span>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-gutter">
+            <div className="space-y-sm">
+              <h4 className="font-label-md text-label-md text-on-surface-variant uppercase">Accuracy</h4>
+              <MetricBars metrics={comparisonMetrics} field="accuracy" />
+            </div>
+            <div className="space-y-sm">
+              <h4 className="font-label-md text-label-md text-on-surface-variant uppercase">Macro F1</h4>
+              <MetricBars metrics={comparisonMetrics} field="macro_f1" />
+            </div>
+            <div className="space-y-sm">
+              <h4 className="font-label-md text-label-md text-on-surface-variant uppercase">Weighted F1</h4>
+              <MetricBars metrics={comparisonMetrics} field="weighted_f1" />
+            </div>
+          </div>
+        </section>
       </main>
 
       <button className="md:hidden fixed bottom-8 right-8 w-14 h-14 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center z-50">

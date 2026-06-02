@@ -15,3 +15,8 @@ duckduckgo-search
 playwright
 newspaper3k
 lxml_html_clean
+datasets
+joblib
+scikit-learn
+matplotlib
+pandas

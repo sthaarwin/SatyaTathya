@@ -14,7 +14,8 @@ from services.chroma_service import search_similar_claims, compute_similarity
 
 load_dotenv()
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_KEYS = [k.strip() for k in os.getenv("GEMINI_API_KEYS", "").split(",") if k.strip()]
+CURRENT_KEY_INDEX = 0
 USE_LLM_STANCE = os.getenv("USE_LLM_STANCE", "true").lower() == "true"
 USE_LLM_QUERY_OPTIMIZER = os.getenv("USE_LLM_QUERY_OPTIMIZER", "false").lower() == "true"
 MAX_LLM_EVIDENCE_ITEMS = int(os.getenv("MAX_LLM_EVIDENCE_ITEMS", "2"))
@@ -33,7 +34,7 @@ STOP_WORDS = {
 
 class EvidenceStanceSchema(BaseModel):
     relevance: float = Field(ge=0.0, le=1.0, description="Whether the evidence is about the same specific factual claim.")
-    stance: str = Field(description="One of SUPPORT, CONTRADICT, or INSUFFICIENT.")
+    stance: str = Field(description="One of SUPPORT, CONTRADICT, or INDETERMINATE.")
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in the stance decision.")
     reason: str = Field(description="Brief explanation grounded in the evidence.")
     evidence_quote: str = Field(description="Short exact supporting phrase from the evidence, if available.")
@@ -69,9 +70,9 @@ def calculate_weighted_score(findings):
         if source_weight == 0.0:
             print(f"[!] Warning: Data source is blacklisted: {domain}")
             
-        stance = result.get('stance', 'INSUFFICIENT')
+        stance = result.get('stance', 'INDETERMINATE')
         if stance == "NEUTRAL":
-            stance = "INSUFFICIENT"
+            stance = "INDETERMINATE"
 
         relevance = result.get('relevance', result.get('similarity', 0.0))
         confidence = result.get('confidence', 0.5)
@@ -85,7 +86,7 @@ def calculate_weighted_score(findings):
             total_weight += evidence_weight
     
     truth_score = (support_sum - contradict_sum) / total_weight if total_weight > 0 else 0.0
-    
+
     return truth_score
 
 
@@ -97,16 +98,20 @@ def get_source_weight(domain: str) -> float:
 
 
 def normalize_stance(stance: str) -> str:
-    stance = (stance or "INSUFFICIENT").upper()
-    if stance in {"SUPPORT", "SUPPORTED", "TRUE"}:
+    stance = (stance or "INDETERMINATE").upper()
+    if stance in {"SUPPORT", "SUPPORTED", "TRUE", "SUPPORTS"}:
         return "SUPPORT"
-    if stance in {"CONTRADICT", "CONTRADICTS", "FALSE"}:
+    if stance in {"CONTRADICT", "CONTRADICTS", "FALSE", "REFUTED", "REFUTES"}:
         return "CONTRADICT"
-    return "INSUFFICIENT"
+    return "INDETERMINATE"
 
 
 def clamp_score(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
     return max(minimum, min(maximum, value))
+
+
+def count_indicators(text: str, indicators: list[str]) -> int:
+    return sum(1 for indicator in indicators if indicator in text)
 
 
 def local_search_query(claim: str, max_terms: int = 8) -> str:
@@ -127,15 +132,13 @@ def extract_search_query(claim: str) -> str:
     """Uses Gemini to distill a long conversational claim into a concise 3-5 word search query."""
     if len(claim.split()) <= 6:
         return claim
-    if not USE_LLM_QUERY_OPTIMIZER or not GEMINI_API_KEY:
+    if not USE_LLM_QUERY_OPTIMIZER or not GEMINI_KEYS:
         return local_search_query(claim)
     
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    prompt = f"Extract the most important 3 to 5 search keywords from this claim. Do not include stop words. Output ONLY the keywords separated by spaces, nothing else. Claim: {claim}"
-    
-    # We use a fast, low-retry loop since it's just for optimization
-    for attempt in range(2):
+    for attempt in range(len(GEMINI_KEYS)):
         try:
+            global CURRENT_KEY_INDEX
+            client = genai.Client(api_key=GEMINI_KEYS[CURRENT_KEY_INDEX])
             response = client.models.generate_content(
                 model="gemini-2.0-flash",
                 contents=prompt,
@@ -145,9 +148,9 @@ def extract_search_query(claim: str) -> str:
             if keywords:
                 return keywords
         except Exception as e:
-            if "RESOURCE_EXHAUSTED" in str(e):
-                import time
-                time.sleep(5)
+            if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
+                CURRENT_KEY_INDEX = (CURRENT_KEY_INDEX + 1) % len(GEMINI_KEYS)
+                continue
             pass
             
     # If it fails, fallback to the first 8 words natively
@@ -183,10 +186,9 @@ def search_and_scrape_evidence(query: str, use_firecrawl: bool = False):
             except Exception as e:
                 print(f"[-] Firecrawl Failed: {e}. Falling back to simple scraper.")
 
-    nepali_domains = ["ekantipur.com", "kathmandupost.com", "onlinekhabar.com", "setopati.com", 
-                    "ratopati.com", "nepalfactcheck.org", "southasiacheck.org"]
-    site_str = " OR ".join([f"site:{d}" for d in nepali_domains])
-    search_query = f"{optimized_query} {site_str}"
+    searchable_domains = [domain for domain, weight in SOURCE_WEIGHTS.items() if weight > 0]
+    site_str = " OR ".join([f"site:{domain}" for domain in searchable_domains])
+    search_query = f"{optimized_query} {site_str}" if site_str else optimized_query
     
     print(f"[*] Using DuckDuckGo + BeautifulSoup to search and scrape.")
     try:
@@ -251,26 +253,80 @@ def evaluate_evidence_embedding(claim: str, evidence_item: dict) -> dict:
     evidence_lower = evidence_text.lower()
     claim_lower = claim.lower()
     
-    # Nepal-specific claim keywords
+    # Nepal-specific and general fact-checking entities
     nepali_claim_entities = {
         'government', 'nepal', 'prime', 'minister', 'kathmandu', 'municipality',
         'river', 'bank', 'demolition', 'illegal', 'building', 'road', 'highway',
-        'construction', 'project', 'development', 'budget', 'hospital', 'school'
+        'construction', 'project', 'development', 'budget', 'hospital', 'school',
+        'parliament', 'president', 'mayor', 'ward', 'province', 'district',
+        'police', 'army', 'court', 'commission', 'ministry', 'ministerial',
+        'election', 'vote', 'candidate', 'party', 'tax', 'price', 'fuel',
+        'electricity', 'airport', 'bridge', 'tunnel', 'landslide', 'flood',
+        'earthquake', 'border', 'citizenship', 'passport', 'visa', 'climate',
+        'warming', 'temperature', 'carbon', 'emissions', 'environment', 'science',
+        'nasa', 'ipcc', 'noaa', 'united', 'nations', 'supreme', 'central',
+        'नपल', 'नेपाल', 'सरकार', 'प्रधानमन्त्री', 'मन्त्री', 'काठमाडौं', 'पालिका',
+        'नगरपालिका', 'अदालत', 'प्रहरी', 'सेना', 'निर्वाचन', 'चुनाव',
+        'बजेट', 'सडक', 'अस्पताल', 'विद्यालय', 'विकास', 'वातावरण', 'जलवायु',
+        'परिवर्तन', 'तापक्रम'
     }
     
     # Strong support indicators
     support_words = [
-        'confirmed', 'true', 'announced', 'approved', 'launched', 'begins', 
+        'confirmed', 'true', 'announced', 'approved', 'launched', 'begins',
         'construction started', 'fund approved', 'will implement', 'initiated',
         'clearance granted', 'permission granted', 'tender awarded', 'contract signed',
-        'development', 'inaugurated', 'completed', 'opened'
+        'development', 'inaugurated', 'completed', 'opened', 'verified',
+        'officially confirmed', 'has confirmed', 'have confirmed', 'according to',
+        'reported that', 'stated that', 'said that', 'revealed that', 'found that',
+        'evidence shows', 'data shows', 'records show', 'documents show',
+        'signed', 'passed', 'implemented', 'enforced', 'published', 'released',
+        'issued', 'declared', 'decided', 'endorsed', 'ratified', 'allocated',
+        'budget allocated', 'notice issued', 'gazette published', 'started',
+        'resumed', 'operational', 'in operation', 'took effect', 'came into effect',
+        'scientific consensus', 'study found', 'research indicates', 'evidence suggests',
+        'consistent with', 'peer-reviewed', 'data supports', 'corroborates',
+        'substantiates', 'validated', 'authentic', 'legitimate', 'unanimous',
+        'पुष्टि', 'सत्य', 'स्वीकृत', 'अनुमोदन', 'घोषणा', 'सुरु', 'शुरु',
+        'कार्यान्वयन', 'निर्णय', 'जारी', 'प्रकाशित', 'सम्पन्न', 'खुला',
+        'पारित', 'बजेट विनियोजन', 'ठेक्का', 'सम्झौता', 'प्रमाणित',
+        'pushti', 'satya', 'swikrit', 'anumodan', 'ghoshana', 'suru',
+        'karyanwayan', 'nirnaya', 'jari', 'prakashit', 'parit'
     ]
     
-    # Strong contradiction indicators  
+    # Strong contradiction indicators
     contradict_words = [
         'denied', 'false', 'fake', 'cancelled', 'stopped', 'rejected', 'debunked',
         'misleading', 'hoax', 'rumor', 'untrue', 'incorrect',
-        'not authorized', 'no permission', 'violated', 'scam', 'fraud'
+        'not authorized', 'no permission', 'violated', 'scam', 'fraud',
+        'no evidence', 'not true', 'is not true', 'was not true', 'not correct',
+        'fact check', 'fact-check', 'fact checked', 'fabricated', 'baseless',
+        'unverified', 'unsubstantiated', 'doctored', 'manipulated', 'edited',
+        'old video', 'old photo', 'taken out of context', 'out of context',
+        'wrong context', 'miscaptioned', 'unrelated video', 'unrelated photo',
+        'denies', 'denied that', 'refuted', 'contradicted', 'clarified that no',
+        'there is no', 'there are no', 'has not', 'have not', 'did not',
+        'will not', 'never', 'without permission', 'unauthorized', 'invalid',
+        'illegal', 'arrested for spreading', 'police denied', 'officials denied',
+        'misinformation', 'scientific myth', 'lack of empirical evidence',
+        'discredited', 'inconsistent with', 'unfounded', 'refuted by',
+        'खण्डन', 'गलत', 'झुटो', 'झूठो', 'नक्कली', 'भ्रामक', 'अफवाह',
+        'असत्य', 'होइन', 'छैन', 'गरेको छैन', 'भएको छैन', 'स्वीकार गरेन',
+        'अस्वीकार', 'रद्द', 'फर्जी', 'ठगी', 'प्रमाण छैन', 'गलत सूचना',
+        'khandan', 'galat', 'jhuto', 'nakkali', 'bhramak', 'afwah',
+        'asatya', 'hoina', 'chaina', 'gareko chaina', 'bhayeko chaina',
+        'aswikar', 'radda', 'farji', 'thagi'
+    ]
+
+    uncertainty_words = [
+        'alleged', 'allegedly', 'claim', 'claims', 'claimed', 'reportedly',
+        'unconfirmed', 'unclear', 'unknown', 'may', 'might', 'could',
+        'possibly', 'likely', 'rumoured', 'rumored', 'sources say',
+        'not independently verified', 'investigation ongoing', 'under investigation',
+        'awaiting confirmation', 'unproven', 'specious', 'fallacious',
+        'अस्पष्ट', 'अनिश्चित', 'दाबी', 'भनिएको', 'सम्भावना', 'हुन सक्छ',
+        'पुष्टि हुन बाँकी', 'अनुसन्धान जारी',
+        'aspashta', 'anischit', 'dabi', 'bhanieko', 'huna sakcha'
     ]
     
     claim_keywords = set(re.findall(r"[\w\u0900-\u097F]+", claim_lower))
@@ -279,8 +335,9 @@ def evaluate_evidence_embedding(claim: str, evidence_item: dict) -> dict:
     evidence_entities = evidence_tokens & nepali_claim_entities
     entity_overlap = len(claim_entities & evidence_entities)
     
-    support_count = sum(1 for w in support_words if w in evidence_lower)
-    contradict_count = sum(1 for w in contradict_words if w in evidence_lower)
+    support_count = count_indicators(evidence_lower, support_words)
+    contradict_count = count_indicators(evidence_lower, contradict_words)
+    uncertainty_count = count_indicators(evidence_lower, uncertainty_words)
 
     claim_terms = [t for t in claim_keywords if len(t) > 2 and t not in STOP_WORDS]
     term_overlap = len(set(claim_terms) & evidence_tokens)
@@ -289,8 +346,11 @@ def evaluate_evidence_embedding(claim: str, evidence_item: dict) -> dict:
     
     # Stance determination with priority
     if relevance < MIN_RELEVANCE_FOR_SCORING:
-        stance = "INSUFFICIENT"
+        stance = "INDETERMINATE"
         confidence = 0.35
+    elif uncertainty_count > max(support_count, contradict_count) and support_count == 0 and contradict_count == 0:
+        stance = "INDETERMINATE"
+        confidence = 0.45
     elif entity_overlap >= 2:
         if support_count > contradict_count:
             stance = "SUPPORT"
@@ -299,7 +359,7 @@ def evaluate_evidence_embedding(claim: str, evidence_item: dict) -> dict:
             stance = "CONTRADICT"
             confidence = 0.55
         else:
-            stance = "INSUFFICIENT"
+            stance = "INDETERMINATE"
             confidence = 0.40
     elif support_count > 0 and contradict_count == 0:
         stance = "SUPPORT"
@@ -314,7 +374,7 @@ def evaluate_evidence_embedding(claim: str, evidence_item: dict) -> dict:
         stance = "CONTRADICT"
         confidence = 0.45
     else:
-        stance = "INSUFFICIENT"
+        stance = "INDETERMINATE"
         confidence = 0.35
     
     return {
@@ -322,7 +382,7 @@ def evaluate_evidence_embedding(claim: str, evidence_item: dict) -> dict:
         "relevance": round(relevance, 3),
         "similarity": round(similarity, 3),
         "confidence": round(confidence, 3),
-        "reasoning": f"Relevance: {relevance:.3f}, Similarity: {similarity:.3f}, Terms: {term_overlap}, Entities: {entity_overlap}, Support: {support_count}, Contradict: {contradict_count}",
+        "reasoning": f"Relevance: {relevance:.3f}, Similarity: {similarity:.3f}, Terms: {term_overlap}, Entities: {entity_overlap}, Support: {support_count}, Contradict: {contradict_count}, Uncertainty: {uncertainty_count}",
         "method": "local_embedding"
     }
 
@@ -332,55 +392,73 @@ def classify_evidence_with_gemini(claim: str, evidence_item: dict, local_eval: d
     Token-bounded stance classification for only the best local evidence candidates.
     Returns the local evaluation if Gemini is disabled, missing, or fails.
     """
-    if not USE_LLM_STANCE or not GEMINI_API_KEY:
+    if not USE_LLM_STANCE or not GEMINI_KEYS:
         return local_eval
 
     evidence_text = " ".join(evidence_item.get("content", "").split())[:EVIDENCE_SNIPPET_CHARS]
     if not evidence_text:
         return local_eval
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
     prompt = f"""
-You are checking whether one evidence excerpt verifies one factual claim.
-Classify only from the excerpt. If the excerpt is about a related topic but does not directly prove or disprove the claim, use INSUFFICIENT.
+You are a professional fact-checker. Determine if the evidence excerpt supports or contradicts the claim.
 
-Claim:
-{claim[:500]}
+Guidelines:
+- SUPPORT: If the evidence provides direct or strong logical confirmation. Note: Scientific terms like "suggests", "consistent with", or "indicates" should be treated as SUPPORT in a scientific context.
+- CONTRADICT: If the evidence directly refutes or provides a factual counter-point.
+- INDETERMINATE: Use ONLY if the evidence is completely irrelevant or the information is insufficient to make even a logical inference.
 
-Evidence title:
-{evidence_item.get('title', '')[:180]}
-
-Evidence excerpt:
-{evidence_text}
+Claim: {claim[:500]}
+Evidence Title: {evidence_item.get('title', '')[:110]}
+Evidence Content: {evidence_text}
 """
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=EvidenceStanceSchema,
-                temperature=0.0,
-            ),
-        )
-        llm_result = json.loads(response.text)
-        stance = normalize_stance(llm_result.get("stance"))
-        relevance = clamp_score(float(llm_result.get("relevance", local_eval.get("relevance", 0.0))))
-        confidence = clamp_score(float(llm_result.get("confidence", local_eval.get("confidence", 0.5))))
-        if relevance < MIN_RELEVANCE_FOR_SCORING:
-            stance = "INSUFFICIENT"
-        return {
-            **local_eval,
-            "stance": stance,
-            "relevance": round(relevance, 3),
-            "confidence": round(confidence, 3),
-            "reasoning": llm_result.get("reason", local_eval.get("reasoning", ""))[:500],
-            "evidence_quote": llm_result.get("evidence_quote", "")[:300],
-            "method": "gemini_stance",
-        }
-    except Exception as e:
-        print(f"[!] Gemini stance classification failed, using local fallback: {e}")
-        return local_eval
+    
+    global CURRENT_KEY_INDEX
+    initial_index = CURRENT_KEY_INDEX
+    
+    for _ in range(len(GEMINI_KEYS)):
+        current_key = GEMINI_KEYS[CURRENT_KEY_INDEX]
+        client = genai.Client(api_key=current_key)
+        
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=EvidenceStanceSchema,
+                    temperature=0.0,
+                ),
+            )
+            llm_result = json.loads(response.text)
+            stance = normalize_stance(llm_result.get("stance"))
+            relevance = clamp_score(float(llm_result.get("relevance", local_eval.get("relevance", 0.0))))
+            confidence = clamp_score(float(llm_result.get("confidence", local_eval.get("confidence", 0.5))))
+            
+            # Debugging print to see what Gemini is actually thinking
+            print(f"[DEBUG] Gemini Result (Key {CURRENT_KEY_INDEX}): Stance={stance}, Relevance={relevance}, Conf={confidence}")
+            
+            return {
+                **local_eval,
+                "stance": stance,
+                "relevance": round(relevance, 3),
+                "confidence": round(confidence, 3),
+                "reasoning": llm_result.get("reason", local_eval.get("reasoning", ""))[:500],
+                "evidence_quote": llm_result.get("evidence_quote", "")[:300],
+                "method": "gemini_stance",
+            }
+        except Exception as e:
+            if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
+                print(f"[!] Key {CURRENT_KEY_INDEX} exhausted. Rotating to next key...")
+                CURRENT_KEY_INDEX = (CURRENT_KEY_INDEX + 1) % len(GEMINI_KEYS)
+                if CURRENT_KEY_INDEX == initial_index:
+                    print("[!] All Gemini API keys exhausted.")
+                    break
+                continue
+            else:
+                print(f"[!] Gemini stance classification failed: {e}")
+                return local_eval
+                
+    return local_eval
 
 
 def select_verdict(truth_score: float, confidence: float) -> str:
@@ -445,7 +523,7 @@ def verify_claim(core_claim: str, url: str = None, use_firecrawl: bool = False) 
 
             finding = {
                 "domain": ev.get("domain", ""),
-                "stance": normalize_stance(eval_result.get("stance", "INSUFFICIENT")),
+                "stance": normalize_stance(eval_result.get("stance", "INDETERMINATE")),
                 "relevance": eval_result.get("relevance", 0.0),
                 "similarity": eval_result.get("similarity", 0.5),
                 "confidence": eval_result.get("confidence", 0.5),
@@ -458,7 +536,7 @@ def verify_claim(core_claim: str, url: str = None, use_firecrawl: bool = False) 
             }
             findings.append(finding)
         
-        findings.sort(key=lambda f: (f.get("stance") != "INSUFFICIENT", f.get("relevance", 0.0)), reverse=True)
+        findings.sort(key=lambda f: (f.get("stance") != "INDETERMINATE", f.get("relevance", 0.0)), reverse=True)
         truth_score = calculate_weighted_score(findings)
         result["truth_score"] = truth_score
 
