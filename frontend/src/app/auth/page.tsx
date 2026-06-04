@@ -1,24 +1,29 @@
-﻿"use client";
+﻿'use client';
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
-type AuthMode = "login" | "signup";
+type AuthMode = 'login' | 'signup';
 
 interface FormState {
   email: string;
   password: string;
-  confirmPassword?: string;
-  fullName?: string;
+  confirmPassword: string;
+  fullName: string;
 }
 
 export default function AuthPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<AuthMode>("login");
+  const [mode, setMode] = useState<AuthMode>('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>({ email: "", password: "", confirmPassword: "", fullName: "" });
+  const [form, setForm] = useState<FormState>({
+    email: '',
+    password: '',
+    confirmPassword: '',
+    fullName: '',
+  });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -31,38 +36,45 @@ export default function AuthPage() {
     setError(null);
     setSuccess(null);
 
-    if (mode === "signup" && form.password !== form.confirmPassword) {
-      setError("Passwords do not match.");
+    if (mode === 'signup' && form.password !== form.confirmPassword) {
+      setError('Passwords do not match.');
       setLoading(false);
       return;
     }
 
-    const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/signup";
+    if (mode === 'signup' && form.password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      setLoading(false);
+      return;
+    }
+
+    const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/signup';
 
     try {
       const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: form.email,
           password: form.password,
-          ...(mode === "signup" && { full_name: form.fullName }),
+          ...(mode === 'signup' && { full_name: form.fullName }),
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Authentication failed.");
+        throw new Error(data.error || 'Authentication failed.');
       }
 
-      if (mode === "signup") {
-        setSuccess("Account created. Check your email to confirm your address.");
+      if (mode === 'signup') {
+        setSuccess('Account created! Check your email to confirm your address before signing in.');
       } else {
-        router.push("/");
+        router.push('/');
+        router.refresh();
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
     } finally {
       setLoading(false);
     }
@@ -72,176 +84,324 @@ export default function AuthPage() {
     setMode(newMode);
     setError(null);
     setSuccess(null);
-    setForm({ email: "", password: "", confirmPassword: "", fullName: "" });
+    setForm({ email: '', password: '', confirmPassword: '', fullName: '' });
   };
 
   return (
-    <>
-      <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-margin-mobile md:px-margin-desktop h-20 max-w-max-width mx-auto bg-surface border-b border-outline-variant">
-        <a href="/" className="font-headline-md text-headline-md font-bold text-on-surface tracking-tight hover:text-primary transition-colors duration-200">
+    <div style={{ minHeight: '100vh', backgroundColor: '#fbf9f5', display: 'flex', flexDirection: 'column' }}>
+
+      {/* â”€â”€ Header â”€â”€ */}
+      <header style={{
+        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
+        height: '72px', backgroundColor: '#fbf9f5',
+        borderBottom: '1px solid #d6c3b9',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0 48px',
+      }}>
+        <a href="/" style={{
+          fontFamily: '"Playfair Display", serif',
+          fontSize: '20px', fontWeight: 700,
+          color: '#1b1c1a', textDecoration: 'none', letterSpacing: '-0.01em',
+        }}>
           SATYATATHYA
         </a>
-        <nav className="hidden md:flex gap-lg">
-          <a className="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors duration-200" href="#">About</a>
-          <a className="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors duration-200" href="#">Archive</a>
+        <nav style={{ display: 'flex', gap: '32px' }}>
+          {['About', 'Archive'].map((item) => (
+            <a key={item} href="#" style={{
+              fontFamily: '"Plus Jakarta Sans", sans-serif',
+              fontSize: '14px', fontWeight: 600,
+              color: '#52443d', textDecoration: 'none',
+            }}>{item}</a>
+          ))}
         </nav>
-        <div className="flex items-center gap-md">
-          <span className="material-symbols-outlined text-primary">lock</span>
-        </div>
+        <span className="material-symbols-outlined" style={{ color: '#825032' }}>lock</span>
       </header>
 
-      <main className="min-h-screen pt-20 flex flex-col lg:flex-row bg-surface">
-        <aside className="hidden lg:flex flex-col justify-between w-[45%] min-h-[calc(100vh-5rem)] bg-on-background p-16 relative overflow-hidden">
-          <div className="absolute inset-0 opacity-5 pointer-events-none" aria-hidden="true">
+      {/* â”€â”€ Body â”€â”€ */}
+      <div style={{ display: 'flex', flex: 1, paddingTop: '72px', minHeight: '100vh' }}>
+
+        {/* â”€â”€ Left editorial panel â”€â”€ */}
+        <aside style={{
+          width: '45%', minHeight: 'calc(100vh - 72px)',
+          backgroundColor: '#1b1c1a',
+          padding: '64px', display: 'flex', flexDirection: 'column',
+          justifyContent: 'space-between', position: 'relative', overflow: 'hidden',
+        }}
+          className="auth-aside"
+        >
+          {/* Ruled lines */}
+          <div style={{ position: 'absolute', inset: 0, opacity: 0.05, pointerEvents: 'none' }}>
             {Array.from({ length: 20 }).map((_, i) => (
-              <div key={i} className="border-b border-on-surface" style={{ height: "5%" }} />
+              <div key={i} style={{ height: '5%', borderBottom: '1px solid #fbf9f5' }} />
             ))}
           </div>
-          <span className="absolute -bottom-8 -right-4 text-[22rem] font-black text-on-surface opacity-[0.04] select-none leading-none tracking-tighter pointer-events-none" aria-hidden="true">S</span>
 
-          <div className="relative z-10">
-            <div className="inline-flex items-center gap-xs mb-xl">
-              <span className="w-2 h-2 rounded-full bg-tertiary-container animate-pulse" />
-              <span className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest">Press Verified System</span>
+          {/* Big S */}
+          <span style={{
+            position: 'absolute', bottom: '-32px', right: '-16px',
+            fontSize: '320px', fontWeight: 900, fontFamily: '"Playfair Display", serif',
+            color: '#fbf9f5', opacity: 0.04, lineHeight: 1, userSelect: 'none',
+            pointerEvents: 'none',
+          }}>S</span>
+
+          {/* Top content */}
+          <div style={{ position: 'relative', zIndex: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '48px' }}>
+              <span style={{
+                width: '8px', height: '8px', borderRadius: '50%',
+                backgroundColor: '#7e726e', display: 'inline-block',
+              }} className="pulse-dot" />
+              <span style={{
+                fontFamily: '"Plus Jakarta Sans", sans-serif',
+                fontSize: '12px', fontWeight: 500, color: '#52443d',
+                textTransform: 'uppercase', letterSpacing: '0.1em',
+              }}>Press Verified System</span>
             </div>
-            <h1 className="font-display-lg text-display-lg text-primary leading-none mb-lg">
-              THE TRUTH<br /><span className="text-on-surface-variant">STARTS</span><br />HERE.
+
+            <h1 style={{
+              fontFamily: '"Playfair Display", serif',
+              fontSize: '56px', fontWeight: 700, lineHeight: 1.05,
+              color: '#825032', marginBottom: '32px', letterSpacing: '-0.02em',
+            }}>
+              THE TRUTH<br />
+              <span style={{ color: '#52443d' }}>STARTS</span><br />
+              HERE.
             </h1>
-            <p className="font-body-lg text-body-lg text-on-surface-variant max-w-sm font-serif italic leading-relaxed">
-              Join Nepal&rsquo;s most rigorous TikTok news verification platform. Every claim scrutinised. Every source cited. No exceptions.
+
+            <p style={{
+              fontFamily: '"Playfair Display", serif',
+              fontSize: '18px', lineHeight: 1.7, color: '#52443d',
+              fontStyle: 'italic', maxWidth: '360px',
+            }}>
+              Nepal&rsquo;s most rigorous TikTok news verification platform.
+              Every claim scrutinised. Every source cited. No exceptions.
             </p>
           </div>
 
-          <div className="relative z-10 space-y-md">
-            <div className="border-t border-outline-variant pt-md">
-              <div className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest mb-sm">Editorial Standards</div>
-              <ul className="space-y-xs">
+          {/* Bottom content */}
+          <div style={{ position: 'relative', zIndex: 10 }}>
+            <div style={{ borderTop: '1px solid #d6c3b9', paddingTop: '24px', marginBottom: '24px' }}>
+              <p style={{
+                fontFamily: '"Plus Jakarta Sans", sans-serif',
+                fontSize: '12px', fontWeight: 500, color: '#52443d',
+                textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px',
+              }}>Editorial Standards</p>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {[
-                  { icon: "verified", text: "Multimodal AI analysis" },
-                  { icon: "policy", text: "Cross-referenced with verified sources" },
-                  { icon: "shield", text: "End-to-end encrypted sessions" },
+                  { icon: 'verified', text: 'Multimodal AI analysis' },
+                  { icon: 'policy', text: 'Cross-referenced with verified sources' },
+                  { icon: 'shield', text: 'End-to-end encrypted sessions' },
                 ].map(({ icon, text }) => (
-                  <li key={text} className="flex items-center gap-sm font-body-md text-body-md text-on-surface-variant">
-                    <span className="material-symbols-outlined text-primary text-base">{icon}</span>
-                    {text}
+                  <li key={text} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span className="material-symbols-outlined" style={{ color: '#825032', fontSize: '18px' }}>{icon}</span>
+                    <span style={{ fontFamily: '"Plus Jakarta Sans", sans-serif', fontSize: '14px', color: '#52443d' }}>{text}</span>
                   </li>
                 ))}
               </ul>
             </div>
-            <div className="border-t border-outline-variant pt-md flex items-center gap-sm">
-              <span className="material-symbols-outlined text-outline-variant text-sm">newspaper</span>
-              <span className="font-label-sm text-label-sm text-on-surface-variant italic">Trusted by journalists across Nepal</span>
+            <div style={{ borderTop: '1px solid #d6c3b9', paddingTop: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span className="material-symbols-outlined" style={{ color: '#84746c', fontSize: '16px' }}>newspaper</span>
+              <span style={{ fontFamily: '"Plus Jakarta Sans", sans-serif', fontSize: '12px', color: '#52443d', fontStyle: 'italic' }}>
+                Trusted by journalists across Nepal
+              </span>
             </div>
           </div>
         </aside>
 
-        <section className="flex-1 flex flex-col items-center justify-center px-margin-mobile md:px-16 py-xl">
-          <div className="w-full max-w-md">
-            <div className="flex border-b border-outline-variant mb-xl">
-              {(["login", "signup"] as const).map((m) => (
-                <button key={m} onClick={() => switchMode(m)}
-                  className={`flex-1 py-sm font-label-md text-label-md uppercase tracking-widest transition-all duration-200 border-b-2 -mb-px ${mode === m ? "border-primary text-primary" : "border-transparent text-on-surface-variant hover:text-on-surface"}`}>
-                  {m === "login" ? "Sign In" : "Create Account"}
+        {/* â”€â”€ Right auth panel â”€â”€ */}
+        <section style={{
+          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '48px 64px', backgroundColor: '#fbf9f5',
+        }}>
+          <div style={{ width: '100%', maxWidth: '440px' }}>
+
+            {/* Tab switcher */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #d6c3b9', marginBottom: '40px' }}>
+              {(['login', 'signup'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => switchMode(m)}
+                  style={{
+                    flex: 1, padding: '14px 0', border: 'none', background: 'none', cursor: 'pointer',
+                    fontFamily: '"Plus Jakarta Sans", sans-serif',
+                    fontSize: '13px', fontWeight: 600, letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: mode === m ? '#825032' : '#52443d',
+                    borderBottom: mode === m ? '2px solid #825032' : '2px solid transparent',
+                    marginBottom: '-1px',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {m === 'login' ? 'Sign In' : 'Create Account'}
                 </button>
               ))}
             </div>
 
-            <div className="mb-xl">
-              <h2 className="font-headline-md text-headline-md text-on-background mb-xs">
-                {mode === "login" ? "Welcome back, Editor." : "Join the Editorial Desk."}
+            {/* Heading */}
+            <div style={{ marginBottom: '32px' }}>
+              <h2 style={{
+                fontFamily: '"Playfair Display", serif',
+                fontSize: '28px', fontWeight: 600, color: '#1b1c1a',
+                marginBottom: '8px', lineHeight: 1.3,
+              }}>
+                {mode === 'login' ? 'Welcome back, Editor.' : 'Join the Editorial Desk.'}
               </h2>
-              <p className="font-body-md text-body-md text-on-surface-variant">
-                {mode === "login" ? "Sign in to access your analysis dashboard." : "Create an account to start verifying content."}
+              <p style={{ fontFamily: '"Plus Jakarta Sans", sans-serif', fontSize: '15px', color: '#52443d', lineHeight: 1.6 }}>
+                {mode === 'login'
+                  ? 'Sign in to access your analysis dashboard.'
+                  : 'Create an account to start verifying content.'}
               </p>
             </div>
 
+            {/* Error / Success banners */}
             {error && (
-              <div className="mb-md p-sm bg-error/10 border border-error text-error rounded-lg font-body-md flex items-start gap-sm">
-                <span className="material-symbols-outlined text-base mt-0.5">error</span>
-                {error}
+              <div style={{
+                marginBottom: '20px', padding: '12px 16px',
+                backgroundColor: 'rgba(186,26,26,0.08)', border: '1px solid #ba1a1a',
+                borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '10px',
+              }}>
+                <span className="material-symbols-outlined" style={{ color: '#ba1a1a', fontSize: '18px', marginTop: '1px' }}>error</span>
+                <span style={{ fontFamily: '"Plus Jakarta Sans", sans-serif', fontSize: '14px', color: '#ba1a1a' }}>{error}</span>
               </div>
             )}
             {success && (
-              <div className="mb-md p-sm bg-green-500/10 border border-green-500 text-green-700 rounded-lg font-body-md flex items-start gap-sm">
-                <span className="material-symbols-outlined text-base mt-0.5">check_circle</span>
-                {success}
+              <div style={{
+                marginBottom: '20px', padding: '12px 16px',
+                backgroundColor: 'rgba(76,175,80,0.08)', border: '1px solid #4caf50',
+                borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '10px',
+              }}>
+                <span className="material-symbols-outlined" style={{ color: '#4caf50', fontSize: '18px', marginTop: '1px' }}>check_circle</span>
+                <span style={{ fontFamily: '"Plus Jakarta Sans", sans-serif', fontSize: '14px', color: '#2e7d32' }}>{success}</span>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-md">
-              {mode === "signup" && (
-                <div className="space-y-xs">
-                  <label className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest" htmlFor="fullName">Full Name</label>
-                  <div className="relative">
-                    <span className="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-outline-variant text-base">person</span>
-                    <input id="fullName" name="fullName" type="text" autoComplete="name" value={form.fullName} onChange={handleChange} required={mode === "signup"} placeholder="Aarav Sharma"
-                      className="w-full pl-10 pr-sm py-sm bg-surface-container-low border border-outline-variant rounded-lg font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary transition-colors" />
+            {/* Form */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+              {mode === 'signup' && (
+                <div>
+                  <label style={labelStyle} htmlFor="fullName">Full Name</label>
+                  <div style={inputWrapStyle}>
+                    <span className="material-symbols-outlined" style={iconStyle}>person</span>
+                    <input
+                      id="fullName" name="fullName" type="text"
+                      autoComplete="name" value={form.fullName}
+                      onChange={handleChange} required={mode === 'signup'}
+                      placeholder="Aarav Sharma"
+                      style={inputStyle}
+                    />
                   </div>
                 </div>
               )}
 
-              <div className="space-y-xs">
-                <label className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest" htmlFor="email">Email Address</label>
-                <div className="relative">
-                  <span className="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-outline-variant text-base">mail</span>
-                  <input id="email" name="email" type="email" autoComplete="email" value={form.email} onChange={handleChange} required placeholder="editor@example.com"
-                    className="w-full pl-10 pr-sm py-sm bg-surface-container-low border border-outline-variant rounded-lg font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary transition-colors" />
+              <div>
+                <label style={labelStyle} htmlFor="email">Email Address</label>
+                <div style={inputWrapStyle}>
+                  <span className="material-symbols-outlined" style={iconStyle}>mail</span>
+                  <input
+                    id="email" name="email" type="email"
+                    autoComplete="email" value={form.email}
+                    onChange={handleChange} required
+                    placeholder="editor@example.com"
+                    style={inputStyle}
+                  />
                 </div>
               </div>
 
-              <div className="space-y-xs">
-                <label className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest" htmlFor="password">Password</label>
-                <div className="relative">
-                  <span className="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-outline-variant text-base">lock</span>
-                  <input id="password" name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={form.password} onChange={handleChange} required placeholder="••••••••"
-                    className="w-full pl-10 pr-sm py-sm bg-surface-container-low border border-outline-variant rounded-lg font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary transition-colors" />
+              <div>
+                <label style={labelStyle} htmlFor="password">Password</label>
+                <div style={inputWrapStyle}>
+                  <span className="material-symbols-outlined" style={iconStyle}>lock</span>
+                  <input
+                    id="password" name="password" type="password"
+                    autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                    value={form.password} onChange={handleChange}
+                    required placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                    style={inputStyle}
+                  />
                 </div>
-                {mode === "signup" && <p className="font-label-sm text-label-sm text-on-surface-variant">Minimum 8 characters.</p>}
+                {mode === 'signup' && (
+                  <p style={{ fontFamily: '"Plus Jakarta Sans", sans-serif', fontSize: '12px', color: '#52443d', marginTop: '6px' }}>
+                    Minimum 8 characters.
+                  </p>
+                )}
               </div>
 
-              {mode === "signup" && (
-                <div className="space-y-xs">
-                  <label className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest" htmlFor="confirmPassword">Confirm Password</label>
-                  <div className="relative">
-                    <span className="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-outline-variant text-base">lock_reset</span>
-                    <input id="confirmPassword" name="confirmPassword" type="password" autoComplete="new-password" value={form.confirmPassword} onChange={handleChange} required={mode === "signup"} placeholder="••••••••"
-                      className="w-full pl-10 pr-sm py-sm bg-surface-container-low border border-outline-variant rounded-lg font-body-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary transition-colors" />
+              {mode === 'signup' && (
+                <div>
+                  <label style={labelStyle} htmlFor="confirmPassword">Confirm Password</label>
+                  <div style={inputWrapStyle}>
+                    <span className="material-symbols-outlined" style={iconStyle}>lock_reset</span>
+                    <input
+                      id="confirmPassword" name="confirmPassword" type="password"
+                      autoComplete="new-password" value={form.confirmPassword}
+                      onChange={handleChange} required={mode === 'signup'}
+                      placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                      style={inputStyle}
+                    />
                   </div>
                 </div>
               )}
 
-              {mode === "login" && (
-                <div className="flex justify-end">
-                  <a href="/forgot-password" className="font-label-sm text-label-sm text-primary hover:underline">Forgot password?</a>
+              {mode === 'login' && (
+                <div style={{ textAlign: 'right' }}>
+                  <a href="/forgot-password" style={{
+                    fontFamily: '"Plus Jakarta Sans", sans-serif',
+                    fontSize: '13px', color: '#825032', textDecoration: 'none',
+                  }}>Forgot password?</a>
                 </div>
               )}
 
-              <button type="submit" disabled={loading}
-                className="w-full bg-primary text-on-primary py-sm rounded-lg font-label-md text-label-md uppercase tracking-widest flex items-center justify-center gap-sm disabled:opacity-60 transition-all active:scale-[0.98]">
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                style={{
+                  width: '100%', padding: '14px',
+                  backgroundColor: loading ? '#b08060' : '#825032',
+                  color: '#ffffff', border: 'none', borderRadius: '8px',
+                  fontFamily: '"Plus Jakarta Sans", sans-serif',
+                  fontSize: '13px', fontWeight: 600, letterSpacing: '0.08em',
+                  textTransform: 'uppercase', cursor: loading ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                  transition: 'background-color 0.2s',
+                }}
+              >
                 {loading ? (
-                  <><span className="material-symbols-outlined text-base animate-spin">progress_activity</span>Processing…</>
-                ) : mode === "login" ? (
-                  <><span className="material-symbols-outlined text-base">login</span>Sign In</>
+                  <><span className="material-symbols-outlined" style={{ fontSize: '18px' }}>progress_activity</span> Processingâ€¦</>
+                ) : mode === 'login' ? (
+                  <><span className="material-symbols-outlined" style={{ fontSize: '18px' }}>login</span> Sign In</>
                 ) : (
-                  <><span className="material-symbols-outlined text-base">how_to_reg</span>Create Account</>
+                  <><span className="material-symbols-outlined" style={{ fontSize: '18px' }}>how_to_reg</span> Create Account</>
                 )}
               </button>
-            </form>
-
-            <div className="flex items-center gap-md my-xl">
-              <div className="flex-1 border-t border-outline-variant" />
-              <span className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest">or</span>
-              <div className="flex-1 border-t border-outline-variant" />
             </div>
 
-            <button type="button"
-              className="w-full flex items-center justify-center gap-sm py-sm bg-surface-container-low border border-outline-variant rounded-lg font-label-md text-label-md text-on-surface hover:bg-surface-container transition-colors"
+            {/* Divider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', margin: '32px 0' }}>
+              <div style={{ flex: 1, borderTop: '1px solid #d6c3b9' }} />
+              <span style={{ fontFamily: '"Plus Jakarta Sans", sans-serif', fontSize: '12px', color: '#52443d', textTransform: 'uppercase', letterSpacing: '0.08em' }}>or</span>
+              <div style={{ flex: 1, borderTop: '1px solid #d6c3b9' }} />
+            </div>
+
+            {/* Google */}
+            <button
+              type="button"
               onClick={async () => {
-                const res = await fetch("/api/auth/google");
+                const res = await fetch('/api/auth/google');
                 const data = await res.json();
                 if (data.url) window.location.href = data.url;
-              }}>
-              <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden="true">
+              }}
+              style={{
+                width: '100%', padding: '13px',
+                backgroundColor: '#f5f3ef', border: '1px solid #d6c3b9',
+                borderRadius: '8px', cursor: 'pointer',
+                fontFamily: '"Plus Jakarta Sans", sans-serif',
+                fontSize: '14px', fontWeight: 600, color: '#1b1c1a',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+                transition: 'background-color 0.2s',
+              }}
+            >
+              <svg viewBox="0 0 24 24" style={{ width: '20px', height: '20px' }} aria-hidden="true">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
                 <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
@@ -250,20 +410,78 @@ export default function AuthPage() {
               Continue with Google
             </button>
 
-            <p className="mt-xl text-center font-body-md text-body-md text-on-surface-variant">
-              {mode === "login" ? (
-                <>No account yet?{" "}<button onClick={() => switchMode("signup")} className="text-primary hover:underline font-medium">Create one</button></>
+            {/* Toggle */}
+            <p style={{
+              marginTop: '32px', textAlign: 'center',
+              fontFamily: '"Plus Jakarta Sans", sans-serif', fontSize: '14px', color: '#52443d',
+            }}>
+              {mode === 'login' ? (
+                <>No account yet?{' '}
+                  <button onClick={() => switchMode('signup')} style={{ background: 'none', border: 'none', color: '#825032', fontWeight: 600, cursor: 'pointer', fontSize: '14px', fontFamily: '"Plus Jakarta Sans", sans-serif' }}>
+                    Create one
+                  </button>
+                </>
               ) : (
-                <>Already have an account?{" "}<button onClick={() => switchMode("login")} className="text-primary hover:underline font-medium">Sign in</button></>
+                <>Already have an account?{' '}
+                  <button onClick={() => switchMode('login')} style={{ background: 'none', border: 'none', color: '#825032', fontWeight: 600, cursor: 'pointer', fontSize: '14px', fontFamily: '"Plus Jakarta Sans", sans-serif' }}>
+                    Sign in
+                  </button>
+                </>
               )}
             </p>
 
-            <p className="mt-lg text-center font-label-sm text-label-sm text-on-surface-variant/60 italic">
+            <p style={{
+              marginTop: '16px', textAlign: 'center',
+              fontFamily: '"Plus Jakarta Sans", sans-serif', fontSize: '12px', color: '#84746c', fontStyle: 'italic',
+            }}>
               By continuing, you agree to SATYATATHYA&apos;s editorial standards and privacy policy.
             </p>
           </div>
         </section>
-      </main>
-    </>
+      </div>
+
+      <style>{`
+        .auth-aside { display: flex; }
+        @media (max-width: 1023px) { .auth-aside { display: none !important; } }
+        .pulse-dot { animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+        input:focus { outline: none; border-color: #825032 !important; box-shadow: 0 0 0 3px rgba(130,80,50,0.12); }
+        input::placeholder { color: #84746c; opacity: 0.6; }
+      `}</style>
+    </div>
   );
 }
+
+// â”€â”€ Shared input styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const labelStyle: React.CSSProperties = {
+  display: 'block',
+  fontFamily: '"Plus Jakarta Sans", sans-serif',
+  fontSize: '12px', fontWeight: 600,
+  color: '#52443d', textTransform: 'uppercase',
+  letterSpacing: '0.08em', marginBottom: '8px',
+};
+
+const inputWrapStyle: React.CSSProperties = {
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+};
+
+const iconStyle: React.CSSProperties = {
+  position: 'absolute', left: '14px',
+  color: '#84746c', fontSize: '18px',
+  pointerEvents: 'none',
+};
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '13px 16px 13px 44px',
+  backgroundColor: '#f5f3ef',
+  border: '1px solid #d6c3b9',
+  borderRadius: '8px',
+  fontFamily: '"Plus Jakarta Sans", sans-serif',
+  fontSize: '15px', color: '#1b1c1a',
+  transition: 'border-color 0.2s, box-shadow 0.2s',
+  boxSizing: 'border-box',
+};
+
