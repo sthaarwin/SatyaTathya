@@ -12,7 +12,7 @@ interface AnalysisResult {
   };
 }
 
-export default async function Home() {
+export default function Home() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
