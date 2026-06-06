@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+slowapi
 yt-dlp
 ffmpeg-python
 python-dotenv
@@ -18,5 +19,6 @@ lxml_html_clean
 datasets
 joblib
 scikit-learn
+imbalanced-learn
 matplotlib
 pandas

@@ -24,6 +24,7 @@ from scripts.train_climate_fever_classical import (
     text_values,
 )  # noqa: E402
 from services import verification_service  # noqa: E402
+from models.ensemble_model import get_ensemble_verifier  # noqa: E402
 
 
 MODEL_FILES = {
@@ -280,6 +281,38 @@ def benchmark_voting_ensemble(rows: list[dict], model_dir: str) -> list[str] | N
     return ensemble_preds
 
 
+def benchmark_ensemble_verifier(rows: list[dict]) -> list[str] | None:
+    """Benchmark the new EnsembleVerifier class with feature extraction.
+    
+    Uses Logistic Regression, SVM, and Random Forest with ensemble voting
+    on extracted text features.
+    """
+    ensemble = get_ensemble_verifier()
+    
+    if not ensemble.is_available():
+        print("[!] Warning: EnsembleVerifier models not available")
+        return None
+    
+    predictions = []
+    print(f"[*] Running EnsembleVerifier benchmark on {len(rows)} rows...")
+    
+    for i, row in enumerate(rows):
+        claim = row.get("claim", "")
+        evidence = row.get("evidence", "")
+        
+        try:
+            stance, confidence, model_used = ensemble.predict_stance(claim, evidence)
+            predictions.append(stance)
+            
+            if (i + 1) % 50 == 0:
+                print(f"  [{i + 1}/{len(rows)}] Processed using: {model_used} (conf: {confidence:.3f})")
+        except Exception as e:
+            print(f"[!] Error on row {i}: {e}")
+            predictions.append("INDETERMINATE")
+    
+    return predictions
+
+
 def benchmark_models(rows: list[dict], model_dir: str, use_gemini: bool = False) -> list[dict]:
     y_true = [row["label"] for row in rows]
     results = [score_predictions("heuristic", y_true, benchmark_heuristic(rows, model_dir))]
@@ -299,6 +332,11 @@ def benchmark_models(rows: list[dict], model_dir: str, use_gemini: bool = False)
     ensemble_preds = benchmark_voting_ensemble(rows, model_dir)
     if ensemble_preds is not None:
         results.append(score_predictions("voting_ensemble", y_true, ensemble_preds))
+
+    # Benchmark the new EnsembleVerifier class
+    ensemble_verifier_preds = benchmark_ensemble_verifier(rows)
+    if ensemble_verifier_preds is not None:
+        results.append(score_predictions("ensemble_verifier", y_true, ensemble_verifier_preds))
 
     if use_gemini:
         # 1. Hybrid Model

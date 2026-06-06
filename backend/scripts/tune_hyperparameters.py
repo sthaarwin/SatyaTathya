@@ -34,8 +34,12 @@ def build_tuning_pipeline(kernel: str = "linear"):
         ("engineered", FunctionTransformer(engineered_features, validate=False)),
         ("scale", StandardScaler()),
     ])
+    text_pipeline = Pipeline([
+        ("extract", FunctionTransformer(text_values, validate=False)),
+        ("tfidf", TfidfVectorizer(max_features=30000, ngram_range=(1, 2), min_df=2, sublinear_tf=True, strip_accents="unicode")),
+    ])
     features = FeatureUnion([
-        ("text", TfidfVectorizer(max_features=30000, ngram_range=(1, 2), min_df=2, sublinear_tf=True, strip_accents="unicode")),
+        ("text", text_pipeline),
         ("numeric", numeric),
     ])
 

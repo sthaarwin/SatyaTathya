@@ -8,3 +8,4 @@ satya_cache.db
 chroma_data
 backend/data/climate_fever/
 backend/models/
+__init__.py
