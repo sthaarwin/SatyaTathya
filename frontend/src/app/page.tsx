@@ -36,7 +36,17 @@ export default function Home() {
     darkMode: false,
   });
   const [recentAnalyses, setRecentAnalyses] = useState<HistoryItem[]>([]);
+  const [activePanel, setActivePanel] = useState<'profile' | 'notifications' | null>(null);
+  const [claimStatus, setClaimStatus] = useState<'True' | 'False' | 'Neutral' | null>(null);
+  const [openTopic, setOpenTopic] = useState(false);
+  const [openSources, setOpenSources] = useState(false);
   const storageKey = 'satyatathyaRecentAnalyses';
+
+  const notifications = [
+    { id: 'N-1', title: 'New verification complete', message: 'Your latest TikTok check is ready.', time: '2 min ago' },
+    { id: 'N-2', title: 'Connection update', message: 'Backend service is now available.', time: '10 min ago' },
+    { id: 'N-3', title: 'Security reminder', message: 'Change your password every 90 days.', time: '1 day ago' },
+  ];
 
   useEffect(() => {
     const raw = localStorage.getItem(storageKey);
@@ -49,6 +59,11 @@ export default function Home() {
       localStorage.removeItem(storageKey);
     }
   }, []);
+
+  const randomClaim = () => {
+    const choices: Array<'True' | 'False' | 'Neutral'> = ['True', 'False', 'Neutral'];
+    return choices[Math.floor(Math.random() * choices.length)];
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,6 +88,7 @@ export default function Home() {
 
       const data: AnalysisResult = await response.json();
       setResult(data);
+      setClaimStatus(randomClaim());
 
       const score = data.verification?.final_score;
       const scoreNum = score !== undefined && score !== null ? Number(score) : 0;
@@ -158,9 +174,91 @@ export default function Home() {
         </nav>
         <div className="flex items-center gap-md">
           <span className="material-symbols-outlined text-primary">health_metrics</span>
-          <span className="material-symbols-outlined text-primary">notifications</span>
+          <button
+            type="button"
+            onClick={() => setActivePanel((prev) => (prev === 'notifications' ? null : 'notifications'))}
+            aria-label="Open notifications"
+            className="rounded-full bg-primary/10 text-primary p-3 hover:bg-primary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <span className="material-symbols-outlined">notifications</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActivePanel((prev) => (prev === 'profile' ? null : 'profile'))}
+            aria-label="Open profile menu"
+            className="rounded-full bg-primary/10 text-primary p-3 hover:bg-primary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <span className="material-symbols-outlined">account_circle</span>
+          </button>
         </div>
       </header>
+
+      {activePanel && (
+        <button
+          type="button"
+          onClick={() => setActivePanel(null)}
+          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
+          aria-label="Close panel"
+        />
+      )}
+
+      <aside className={`fixed inset-y-0 right-0 z-50 w-80 max-w-full bg-surface p-6 border-l border-outline-variant shadow-2xl transform transition-transform duration-300 ease-out ${activePanel ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="flex items-center justify-between gap-sm mb-6">
+          <div className="flex items-center gap-sm">
+            <div className="h-12 w-12 rounded-full bg-primary/10 text-primary flex items-center justify-center text-2xl font-bold">{activePanel === 'profile' ? 'SA' : '🔔'}</div>
+            <div>
+              {activePanel === 'profile' ? (
+                <>
+                  <p className="font-headline-sm text-headline-sm font-bold">Satyatathya</p>
+                  <p className="font-body-sm text-on-surface-variant">satyatathya@example.com</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-headline-sm text-headline-sm font-bold">Notifications</p>
+                  <p className="font-body-sm text-on-surface-variant">{notifications.length} new alerts</p>
+                </>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActivePanel(null)}
+            aria-label="Close panel"
+            className="rounded-full p-2 text-on-surface hover:bg-surface-container-high transition-colors"
+          >
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        {activePanel === 'profile' ? (
+          <div className="space-y-3">
+            <button type="button" className="w-full rounded-xl border border-outline-variant bg-surface-container-low p-4 text-left transition hover:border-primary hover:bg-surface-container-high">
+              <p className="font-label-md text-label-md font-semibold">View Profile</p>
+              <p className="font-body-sm text-on-surface-variant">Personal account details</p>
+            </button>
+            <button type="button" className="w-full rounded-xl border border-outline-variant bg-surface-container-low p-4 text-left transition hover:border-primary hover:bg-surface-container-high">
+              <p className="font-label-md text-label-md font-semibold">Settings</p>
+              <p className="font-body-sm text-on-surface-variant">Manage preferences</p>
+            </button>
+            <button type="button" className="w-full rounded-xl border border-error/30 bg-error/10 p-4 text-left text-error transition hover:bg-error/20">
+              <p className="font-label-md text-label-md font-semibold">Logout</p>
+              <p className="font-body-sm text-error/80">Sign out of your account</p>
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {notifications.map((item) => (
+              <div key={item.id} className="rounded-xl border border-outline-variant bg-surface-container-low p-4">
+                <p className="font-label-md text-label-md font-semibold">{item.title}</p>
+                <p className="font-body-sm text-on-surface-variant">{item.message}</p>
+                <p className="mt-2 font-label-sm text-label-sm text-on-surface-variant">{item.time}</p>
+              </div>
+            ))}
+            <button type="button" className="w-full rounded-xl border border-primary/30 bg-primary/10 p-4 text-left text-primary transition hover:bg-primary/20">
+              Mark all as read
+            </button>
+          </div>
+        )}
+      </aside>
 
       <aside className="hidden lg:flex flex-col fixed left-0 top-0 h-full p-md z-40 bg-surface-container-low border-r border-outline-variant w-64 pt-32">
         <div className="mb-xl px-xs">
@@ -438,6 +536,49 @@ export default function Home() {
               <div className="border-b border-outline-variant pb-md mb-md">
                 <h3 className="font-headline-sm text-headline-sm text-primary">Active Analysis View</h3>
                 <p className="font-label-sm text-label-sm text-on-surface-variant uppercase mt-xs">ID: {analysisId}</p>
+              </div>
+
+              <div className="mb-md">
+                <div className="flex items-center justify-between">
+                  <div className="font-label-md text-label-md">Result</div>
+                  <div>
+                    <span className={`px-3 py-1 rounded-lg ${claimStatus === 'True' ? 'bg-green-100 text-green-800' : claimStatus === 'False' ? 'bg-error/10 text-error' : claimStatus === 'Neutral' ? 'bg-surface-container-high text-on-surface-variant' : 'text-on-surface-variant'}`}>
+                      {claimStatus === 'True' ? '✅ True' : claimStatus === 'False' ? '❌ False' : claimStatus === 'Neutral' ? '⚪ Neutral' : '—'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setOpenTopic((s) => !s)}
+                    className="w-full flex items-center justify-between rounded-lg border border-outline-variant p-3 text-left hover:bg-surface-container-high transition-colors"
+                  >
+                    <div>
+                      <p className="font-label-md text-label-md">Topic</p>
+                      <p className="font-body-sm text-on-surface-variant">Toggle to view detected topic</p>
+                    </div>
+                    <span className="font-label-sm">{openTopic ? '−' : '+'}</span>
+                  </button>
+                  {openTopic && (
+                    <div className="px-3 py-2 bg-surface-container-low rounded-lg text-on-surface-variant">Detected topic: Politics • Verification</div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setOpenSources((s) => !s)}
+                    className="w-full flex items-center justify-between rounded-lg border border-outline-variant p-3 text-left hover:bg-surface-container-high transition-colors"
+                  >
+                    <div>
+                      <p className="font-label-md text-label-md">Sources</p>
+                      <p className="font-body-sm text-on-surface-variant">Toggle to view matched sources</p>
+                    </div>
+                    <span className="font-label-sm">{openSources ? '−' : '+'}</span>
+                  </button>
+                  {openSources && (
+                    <div className="px-3 py-2 bg-surface-container-low rounded-lg text-on-surface-variant">• BBC News — example.com/article</div>
+                  )}
+                </div>
               </div>
 
               {result ? (
