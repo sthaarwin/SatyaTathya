@@ -37,7 +37,7 @@ export default function ConfirmPage() {
           return
         }
 
-        router.replace('/')
+        router.replace('/Dashboard.tsx')
       } catch (e: any) {
         setError(e?.message ?? 'Failed to confirm.')
       } finally {
@@ -61,4 +61,3 @@ export default function ConfirmPage() {
     </div>
 )
 }
-

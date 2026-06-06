@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -90,7 +90,7 @@ export default function AuthPage() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#fbf9f5', display: 'flex', flexDirection: 'column' }}>
 
-      {/* â”€â”€ Header â”€â”€ */}
+      {/* ── Header ── */}
       <header style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
         height: '72px', backgroundColor: '#fbf9f5',
@@ -117,10 +117,10 @@ export default function AuthPage() {
         <span className="material-symbols-outlined" style={{ color: '#825032' }}>lock</span>
       </header>
 
-      {/* â”€â”€ Body â”€â”€ */}
+      {/* ── Body ── */}
       <div style={{ display: 'flex', flex: 1, paddingTop: '72px', minHeight: '100vh' }}>
 
-        {/* â”€â”€ Left editorial panel â”€â”€ */}
+        {/* ── Left editorial panel ── */}
         <aside style={{
           width: '45%', minHeight: 'calc(100vh - 72px)',
           backgroundColor: '#1b1c1a',
@@ -208,7 +208,7 @@ export default function AuthPage() {
           </div>
         </aside>
 
-        {/* â”€â”€ Right auth panel â”€â”€ */}
+        {/* ── Right auth panel ── */}
         <section style={{
           flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           padding: '48px 64px', backgroundColor: '#fbf9f5',
@@ -316,7 +316,7 @@ export default function AuthPage() {
                     id="password" name="password" type="password"
                     autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                     value={form.password} onChange={handleChange}
-                    required placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                    required placeholder="••••••••"
                     style={inputStyle}
                   />
                 </div>
@@ -336,7 +336,7 @@ export default function AuthPage() {
                       id="confirmPassword" name="confirmPassword" type="password"
                       autoComplete="new-password" value={form.confirmPassword}
                       onChange={handleChange} required={mode === 'signup'}
-                      placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                      placeholder="••••••••"
                       style={inputStyle}
                     />
                   </div>
@@ -367,7 +367,7 @@ export default function AuthPage() {
                 }}
               >
                 {loading ? (
-                  <><span className="material-symbols-outlined" style={{ fontSize: '18px' }}>progress_activity</span> Processingâ€¦</>
+                  <><span className="material-symbols-outlined" style={{ fontSize: '18px' }}>progress_activity</span> Processing…</>
                 ) : mode === 'login' ? (
                   <><span className="material-symbols-outlined" style={{ fontSize: '18px' }}>login</span> Sign In</>
                 ) : (
@@ -452,7 +452,7 @@ export default function AuthPage() {
   );
 }
 
-// â”€â”€ Shared input styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shared input styles ──────────────────────────────────────────
 const labelStyle: React.CSSProperties = {
   display: 'block',
   fontFamily: '"Plus Jakarta Sans", sans-serif',
