@@ -34,6 +34,7 @@ MODEL_FILES = {
     "logreg_rich": "climate_fever_logreg_rich.joblib",
     "svm_rich": "climate_fever_svm_rich.joblib",
     "random_forest_tuned_rich": "climate_fever_random_forest_tuned_rich.joblib",
+    "xgb_rich": "climate_fever_xgb_rich.joblib",
     "logreg_smote": "climate_fever_logreg_smote.joblib",
     "svm_smote": "climate_fever_svm_smote.joblib",
     "random_forest_smote": "climate_fever_random_forest_smote.joblib",

@@ -1,7 +1,7 @@
 import os
 import json
 import re
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from ddgs import DDGS
 from bs4 import BeautifulSoup
 import requests
@@ -16,6 +16,7 @@ load_dotenv()
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
 GEMINI_KEYS = [k.strip() for k in os.getenv("GEMINI_API_KEYS", "").split(",") if k.strip()]
 CURRENT_KEY_INDEX = 0
+ALL_KEYS_EXHAUSTED_AT = 0.0
 USE_LLM_STANCE = os.getenv("USE_LLM_STANCE", "true").lower() == "true"
 USE_LLM_QUERY_OPTIMIZER = os.getenv("USE_LLM_QUERY_OPTIMIZER", "false").lower() == "true"
 MAX_LLM_EVIDENCE_ITEMS = int(os.getenv("MAX_LLM_EVIDENCE_ITEMS", "2"))
@@ -139,6 +140,7 @@ def extract_search_query(claim: str) -> str:
         try:
             global CURRENT_KEY_INDEX
             client = genai.Client(api_key=GEMINI_KEYS[CURRENT_KEY_INDEX])
+            prompt = f"Distill the following claim into 3-5 keyword search terms. Return only the keywords, no explanations.\n\nClaim: {claim}"
             response = client.models.generate_content(
                 model="gemini-2.0-flash",
                 contents=prompt,
@@ -191,13 +193,43 @@ def search_and_scrape_evidence(query: str, use_firecrawl: bool = False):
     search_query = f"{optimized_query} {site_str}" if site_str else optimized_query
     
     print(f"[*] Using DuckDuckGo + BeautifulSoup to search and scrape.")
-    try:
-        results = DDGS().text(search_query, max_results=3)
-    except Exception as e:
-        print(f"[-] DuckDuckGo search failed: {e}")
-        results = []
+    results = []
+    for attempt in range(3):
+        try:
+            results = DDGS().text(search_query, max_results=3)
+            if results:
+                break
+        except Exception as e:
+            print(f"[-] DuckDuckGo search attempt {attempt + 1}/3 failed: {e}")
+            if attempt < 2:
+                time.sleep(3)
     
     evidence = []
+    if not results:
+        print("[-] DuckDuckGo returned no results. Trying direct HTTP fallback...")
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            resp = requests.get(
+                f"https://html.duckduckgo.com/html/?q={requests.utils.quote(search_query)}",
+                headers=headers, timeout=15
+            )
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            for link in soup.select('.result__a'):
+                href = link.get('href')
+                if href:
+                    parsed = urlparse(href)
+                    qs = parse_qs(parsed.query)
+                    actual_url = qs.get('uddg', [None])[0] or href
+                    snippet_el = link.find_next('.result__snippet')
+                    results.append({
+                        'href': actual_url,
+                        'title': link.get_text(strip=True),
+                        'body': snippet_el.get_text(strip=True) if snippet_el else '',
+                    })
+            results = results[:3]
+        except Exception as e2:
+            print(f"[-] Direct DuckDuckGo fallback also failed: {e2}")
+    
     if not results:
         return evidence
         
@@ -392,8 +424,17 @@ def classify_evidence_with_gemini(claim: str, evidence_item: dict, local_eval: d
     Token-bounded stance classification for only the best local evidence candidates.
     Returns the local evaluation if Gemini is disabled, missing, or fails.
     """
+    global CURRENT_KEY_INDEX, ALL_KEYS_EXHAUSTED_AT
+
     if not USE_LLM_STANCE or not GEMINI_KEYS:
         return local_eval
+
+    # If all keys were recently exhausted, wait before retrying
+    cooldown_remaining = ALL_KEYS_EXHAUSTED_AT + 30 - time.time()
+    if cooldown_remaining > 0:
+        print(f"[!] All keys exhausted, cooling down for {cooldown_remaining:.0f}s...")
+        time.sleep(cooldown_remaining)
+        ALL_KEYS_EXHAUSTED_AT = 0.0
 
     evidence_text = " ".join(evidence_item.get("content", "").split())[:EVIDENCE_SNIPPET_CHARS]
     if not evidence_text:
@@ -412,7 +453,6 @@ Evidence Title: {evidence_item.get('title', '')[:110]}
 Evidence Content: {evidence_text}
 """
     
-    global CURRENT_KEY_INDEX
     initial_index = CURRENT_KEY_INDEX
     
     for _ in range(len(GEMINI_KEYS)):
@@ -434,7 +474,6 @@ Evidence Content: {evidence_text}
             relevance = clamp_score(float(llm_result.get("relevance", local_eval.get("relevance", 0.0))))
             confidence = clamp_score(float(llm_result.get("confidence", local_eval.get("confidence", 0.5))))
             
-            # Debugging print to see what Gemini is actually thinking
             print(f"[DEBUG] Gemini Result (Key {CURRENT_KEY_INDEX}): Stance={stance}, Relevance={relevance}, Conf={confidence}")
             
             return {
@@ -448,10 +487,25 @@ Evidence Content: {evidence_text}
             }
         except Exception as e:
             if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
-                print(f"[!] Key {CURRENT_KEY_INDEX} exhausted. Rotating to next key...")
+                err_msg = str(e)[:200]
+                if "RATE_LIMIT" in err_msg.upper():
+                    limit = "per-minute rate limit"
+                elif "exceeded your current quota" in err_msg.lower():
+                    limit = "daily free-tier quota"
+                elif "daily" in err_msg.lower() or "day" in err_msg.lower():
+                    limit = "daily quota"
+                elif "per month" in err_msg.lower() or "monthly" in err_msg.lower():
+                    limit = "monthly quota"
+                elif "token" in err_msg.lower():
+                    limit = "token limit"
+                else:
+                    limit = "generic quota"
+                print(f"[!] Key {CURRENT_KEY_INDEX} hit {limit}: {err_msg[:120]}")
                 CURRENT_KEY_INDEX = (CURRENT_KEY_INDEX + 1) % len(GEMINI_KEYS)
+                time.sleep(1)
                 if CURRENT_KEY_INDEX == initial_index:
                     print("[!] All Gemini API keys exhausted.")
+                    ALL_KEYS_EXHAUSTED_AT = time.time()
                     break
                 continue
             else:
@@ -473,7 +527,8 @@ def select_verdict(truth_score: float, confidence: float) -> str:
 def verify_claim(core_claim: str, url: str = None, use_firecrawl: bool = False) -> dict:
     print(f"[*] Verifying claim: {core_claim[:100]}...")
     
-    result = {
+    # Internal working dict
+    working_result = {
         "core_claim": core_claim,
         "neutrosophic": {"T": 0.5, "I": 0.3, "F": 0.2},
         "truth_score": 0.0,
@@ -482,19 +537,20 @@ def verify_claim(core_claim: str, url: str = None, use_firecrawl: bool = False) 
         "past_similar_claims": [],
         "evidence": [],
         "findings": [],
-        "summary": ""
+        "summary": "",
+        "llm_used": 0
     }
     
     try:
         similar = search_similar_claims(core_claim, threshold=1.5)
         if similar:
             print(f"[+] Found {len(similar)} similar past claims")
-            result["past_similar_claims"] = similar
+            working_result["past_similar_claims"] = similar
     except Exception as e:
         print(f"[!] ChromaDB search failed: {e}")
     
     evidence = search_and_scrape_evidence(core_claim, use_firecrawl=use_firecrawl)
-    result["evidence"] = [
+    working_result["evidence"] = [
         {"title": e.get("title", ""), "domain": e.get("domain", ""), "url": e.get("url", "")}
         for e in evidence
     ]
@@ -515,36 +571,38 @@ def verify_claim(core_claim: str, url: str = None, use_firecrawl: bool = False) 
             if local_eval.get("relevance", 0.0) < MIN_RELEVANCE_FOR_SCORING:
                 eval_result = local_eval
             elif llm_used < llm_budget and local_eval.get("relevance", 0.0) >= MIN_RELEVANCE_FOR_LLM:
-                eval_result = classify_evidence_with_gemini(core_claim, ev, local_eval)
-                if eval_result.get("method") == "gemini_stance":
-                    llm_used += 1
+                local_stance = local_eval.get("stance", "INDETERMINATE")
+                local_confidence = local_eval.get("confidence", 0.0)
+                if local_stance != "INDETERMINATE" and local_confidence >= 0.5:
+                    eval_result = local_eval
+                else:
+                    eval_result = classify_evidence_with_gemini(core_claim, ev, local_eval)
+                    if eval_result.get("method") == "gemini_stance":
+                        llm_used += 1
             else:
                 eval_result = local_eval
 
             finding = {
                 "domain": ev.get("domain", ""),
+                "title": ev.get("title", ""),
+                "snippet": ev.get("content", "")[:300],
                 "stance": normalize_stance(eval_result.get("stance", "INDETERMINATE")),
                 "relevance": eval_result.get("relevance", 0.0),
-                "similarity": eval_result.get("similarity", 0.5),
                 "confidence": eval_result.get("confidence", 0.5),
-                "source_weight": get_source_weight(ev.get("domain", "")),
-                "method": eval_result.get("method", "local_embedding"),
-                "reasoning": eval_result.get("reasoning", ""),
-                "evidence_quote": eval_result.get("evidence_quote", ""),
-                "title": ev.get("title", ""),
-                "url": ev.get("url", "")
+                "source_credibility": get_source_weight(ev.get("domain", "")),
+                "evidence_weight": eval_result.get("relevance", 0.0) * eval_result.get("confidence", 0.5) * get_source_weight(ev.get("domain", ""))
             }
             findings.append(finding)
         
         findings.sort(key=lambda f: (f.get("stance") != "INDETERMINATE", f.get("relevance", 0.0)), reverse=True)
         truth_score = calculate_weighted_score(findings)
-        result["truth_score"] = truth_score
+        working_result["truth_score"] = truth_score
 
         support_weight = 0.0
         contradict_weight = 0.0
         insufficient_weight = 0.0
         for f in findings:
-            weight = f.get("source_weight", 0.4) * f.get("relevance", 0.0) * f.get("confidence", 0.5)
+            weight = f.get("source_credibility", 0.4) * f.get("relevance", 0.0) * f.get("confidence", 0.5)
             if f["stance"] == "SUPPORT":
                 support_weight += weight
             elif f["stance"] == "CONTRADICT":
@@ -554,25 +612,43 @@ def verify_claim(core_claim: str, url: str = None, use_firecrawl: bool = False) 
 
         total_weight = support_weight + contradict_weight + insufficient_weight
         if total_weight > 0:
-            result["neutrosophic"]["T"] = round(support_weight / total_weight, 3)
-            result["neutrosophic"]["F"] = round(contradict_weight / total_weight, 3)
-            result["neutrosophic"]["I"] = round(insufficient_weight / total_weight, 3)
+            working_result["neutrosophic"]["T"] = round(support_weight / total_weight, 3)
+            working_result["neutrosophic"]["F"] = round(contradict_weight / total_weight, 3)
+            working_result["neutrosophic"]["I"] = round(insufficient_weight / total_weight, 3)
 
         decisive_weight = support_weight + contradict_weight
-        result["confidence"] = round(clamp_score(decisive_weight / (total_weight or 1.0)), 3)
-        result["verdict"] = select_verdict(truth_score, result["confidence"])
+        working_result["confidence"] = round(clamp_score(decisive_weight / (total_weight or 1.0)), 3)
+        working_result["verdict"] = select_verdict(truth_score, working_result["confidence"])
         
-        result["findings"] = findings
+        working_result["findings"] = findings
         support_count = sum(1 for f in findings if f["stance"] == "SUPPORT")
         contradict_count = sum(1 for f in findings if f["stance"] == "CONTRADICT")
         insufficient_count = len(findings) - support_count - contradict_count
-        result["summary"] = (
-            f"Verdict: {result['verdict']} | Truth Score: {truth_score:.3f} | "
-            f"Confidence: {result['confidence']:.3f} | "
+        working_result["summary"] = (
+            f"Verdict: {working_result['verdict']} | Truth Score: {truth_score:.3f} | "
+            f"Confidence: {working_result['confidence']:.3f} | "
             f"{support_count} support, {contradict_count} contradict, {insufficient_count} insufficient | "
             f"Gemini stance calls: {llm_used}"
         )
+        working_result["llm_used"] = llm_used
     else:
-        result["summary"] = "No external evidence found; verdict remains uncertain."
+        working_result["summary"] = "No external evidence found; verdict remains uncertain."
+    
+    # Transform to VerificationResult schema
+    result = {
+        "claim": working_result["core_claim"],
+        "verdict": working_result["verdict"],
+        "truth_score": working_result["truth_score"],
+        "confidence": working_result["confidence"],
+        "evidence_count": len(working_result["findings"]),
+        "evidence_findings": working_result["findings"],
+        "neutrosophic_score": {
+            "truth": working_result["neutrosophic"]["T"],
+            "indeterminacy": working_result["neutrosophic"]["I"],
+            "falsity": working_result["neutrosophic"]["F"]
+        },
+        "reasoning": working_result["summary"],
+        "used_llm": working_result["llm_used"] > 0
+    }
     
     return result

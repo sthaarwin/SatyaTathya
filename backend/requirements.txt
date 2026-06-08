@@ -19,6 +19,7 @@ lxml_html_clean
 datasets
 joblib
 scikit-learn
+xgboost
 imbalanced-learn
 matplotlib
 pandas

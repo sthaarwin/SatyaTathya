@@ -25,13 +25,42 @@ class ContentValidator:
         words = claim.split()
         has_min_length = len(words) >= 3
         
-        # Check for subject-verb structure
+        # Check for subject-verb structure (English + Nepali)
         has_verb = any(
-            word.lower() in [
-                'is', 'are', 'was', 'were', 'will', 'said', 'claims', 'claims',
-                'reported', 'announced', 'stated', 'suggests', 'shows', 'proves',
-                'indicates', 'causes', 'happens', 'occurs', 'happened'
-            ]
+            word.lower() in {
+                # English verbs
+                'is', 'are', 'was', 'were', 'be', 'been', 'being',
+                'has', 'have', 'had', 'do', 'does', 'did',
+                'will', 'would', 'shall', 'should', 'can', 'could', 'may', 'might',
+                'said', 'claims', 'claimed', 'reported', 'announced', 'stated',
+                'suggests', 'suggested', 'shows', 'showed', 'proves', 'proved',
+                'indicates', 'indicated', 'causes', 'caused', 'happens', 'happened',
+                'occurs', 'occurred', 'confirmed', 'denied', 'revealed', 'disclosed',
+                'declared', 'mentioned', 'noted', 'added', 'explained', 'responded',
+                'acknowledged', 'admitted', 'warned', 'urged', 'called', 'demanded',
+                'proposed', 'opposed', 'supported', 'criticized', 'accused', 'praised',
+                'ordered', 'banned', 'approved', 'rejected', 'launched', 'started',
+                'completed', 'opened', 'signed', 'passed', 'implemented', 'published',
+                'issued', 'allocated', 'inaugurated', 'resumed', 'stopped', 'cancelled',
+                'filed', 'submitted', 'recommended', 'directed', 'instructed',
+                # Nepali verbs (common forms)
+                'भन्छन्', 'भनिन्', 'भने', 'भन्यो', 'भन्नुभयो',
+                'छन्', 'छिन्', 'छ', 'थिए', 'थिइन्', 'थियो', 'थिई',
+                'हो', 'हुन्', 'हौ', 'हुँ',
+                'गरे', 'गर्छ', 'गर्छन्', 'गरिन्', 'गर्यो', 'गरिन', 'गर्नुभयो',
+                'भएको', 'भए', 'भयो', 'भइन्',
+                'दिए', 'दिन्छ', 'दियो', 'दिइन्',
+                'लिए', 'लिन्छ', 'लियो', 'लिइन्',
+                'पुगे', 'पुग्यो', 'पुगिन्',
+                'आए', 'आयो', 'आइन्', 'आउँछ', 'आउँछन्',
+                'गए', 'गयो', 'गइन्', 'जान्छ', 'जान्छन्',
+                'बने', 'बन्यो', 'बनिन्', 'बन्छ',
+                'रहे', 'रह्यो', 'रहेको', 'रहेछ',
+                'उल्लेख', 'जनाए', 'बताए', 'बताइन्',
+                'अनुसार', 'प्रकाशित', 'घोषणा',
+                'ठहर', 'ठहर्यो', 'फैसला', 'आदेश',
+                'स्वीकार', 'अस्वीकार', 'खारेज', 'पारित',
+            }
             for word in words
         )
         

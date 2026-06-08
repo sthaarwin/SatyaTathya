@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+import hashlib
+from dotenv import load_dotenv
 
 from services.video_service import download_video
 from services.analysis_service import analyze_video_with_gemini
@@ -16,6 +18,7 @@ from services.fingerprint_service import generate_video_fingerprint
 from services.db_service import init_db, get_cached_analysis_by_url, get_cached_analysis_by_hash, save_analysis, get_cached_verification, save_verification, get_all_cached_analyses, clear_cache
 from services.chroma_service import add_claim_to_db, search_similar_claims, collection, clear_chroma
 from services.verification_service import verify_claim
+from services.eda_service import create_and_save_eda_results, load_existing_eda_results
 from models.schemas import (
     AnalyzeRequest, SearchRequest, AnalysisResponse, SearchResponse, StatsResponse, 
     ComparisonResponse, ErrorResponse, APIResponse, AnalysisData, ClaimQuality, NeutrosophicScore
@@ -23,9 +26,18 @@ from models.schemas import (
 from validators.content_validator import ContentValidator
 from models.ensemble_model import get_ensemble_verifier
 
+load_dotenv()
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Rate limits from env vars (with defaults)
+RATE_LIMIT_ANALYZE = os.getenv("RATE_LIMIT_ANALYZE", "5/minute")
+RATE_LIMIT_SEARCH = os.getenv("RATE_LIMIT_SEARCH", "10/minute")
+RATE_LIMIT_STATS = os.getenv("RATE_LIMIT_STATS", "20/minute")
+RATE_LIMIT_CACHE_CLEAR = os.getenv("RATE_LIMIT_CACHE_CLEAR", "2/minute")
+RATE_LIMIT_HEALTH = os.getenv("RATE_LIMIT_HEALTH", "30/minute")
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
 
@@ -71,18 +83,14 @@ def read_root():
 
 
 @app.post("/api/analyze", response_model=AnalysisResponse)
-@limiter.limit("5/minute")
+@limiter.limit(RATE_LIMIT_ANALYZE)
 def analyze_url(request: Request, analyze_request: AnalyzeRequest):
     """Analyze a video URL for misinformation"""
     start_time = time.time()
     url = analyze_request.url
     
     try:
-        # Validate URL format
-        is_valid, domain = ContentValidator.validate_url(url)
-        if not is_valid:
-            raise HTTPException(status_code=400, detail=f"Invalid or unsupported URL: {url}")
-        
+        _, domain = ContentValidator.validate_url(url)
         logger.info(f"Processing URL: {url} (domain: {domain})")
         
         # 1. Check basic URL cache first (Fastest string match)
@@ -90,6 +98,8 @@ def analyze_url(request: Request, analyze_request: AnalyzeRequest):
         if cached_result:
             logger.info(f"URL cache hit: {url}")
             core_claim = cached_result.get("core_news_claim", "")
+            claim_quality = None
+            eda_results = None
             if core_claim:
                 cached_verification = get_cached_verification(core_claim)
                 if cached_verification:
@@ -98,12 +108,52 @@ def analyze_url(request: Request, analyze_request: AnalyzeRequest):
                     verification = verify_claim(core_claim, url)
                     save_verification(core_claim, verification)
                     cached_result["verification"] = verification
+                
+                is_extractable, quality_conf = ContentValidator.validate_claim_extractability(core_claim)
+                language = ContentValidator.detect_language(core_claim)
+                quality_score = ContentValidator.calculate_claim_quality_score(
+                    core_claim, is_extractable, language, quality_conf
+                )
+                claim_quality = ClaimQuality(
+                    is_extractable=is_extractable,
+                    confidence=quality_conf,
+                    language_detected=language,
+                    length=len(core_claim),
+                    quality_score=quality_score
+                )
+
+                claim_id = f"claim_{hashlib.md5(url.encode()).hexdigest()[:16]}"
+                existing_eda = load_existing_eda_results(claim_id)
+                if existing_eda:
+                    eda_results = existing_eda
+                else:
+                    metadata = {
+                        "url": url,
+                        "spoken_claim": cached_result.get("spoken_claim", ""),
+                        "written_claim": cached_result.get("written_claim", ""),
+                        "truth_score": 0.5
+                    }
+                    try:
+                        eda_result = create_and_save_eda_results(
+                            claim_id=claim_id,
+                            analysis_data=cached_result,
+                            verification_data=cached_result.get("verification", {}),
+                            metadata=metadata,
+                            save_full_data=True
+                        )
+                        if eda_result.get("status") == "success":
+                            logger.info(f"EDA results saved to {eda_result.get('results_directory')}")
+                            eda_results = eda_result
+                    except Exception as e:
+                        logger.error(f"Error generating EDA results: {str(e)}")
             
             processing_time = (time.time() - start_time) * 1000
             return AnalysisResponse(
                 status="success",
                 match_type="url_cache",
                 data=AnalysisData(**cached_result),
+                claim_quality=claim_quality,
+                eda_results=eda_results,
                 timestamp=time.time(),
                 processing_time_ms=processing_time
             )
@@ -129,6 +179,8 @@ def analyze_url(request: Request, analyze_request: AnalyzeRequest):
                     os.remove(file_path)
                 save_analysis(url, vid_hash, visual_cached_result)
                 core_claim = visual_cached_result.get("core_news_claim", "")
+                claim_quality = None
+                eda_results = None
                 if core_claim:
                     cached_verification = get_cached_verification(core_claim)
                     if cached_verification:
@@ -137,12 +189,52 @@ def analyze_url(request: Request, analyze_request: AnalyzeRequest):
                         verification = verify_claim(core_claim, url)
                         save_verification(core_claim, verification)
                         visual_cached_result["verification"] = verification
+
+                    is_extractable, quality_conf = ContentValidator.validate_claim_extractability(core_claim)
+                    language = ContentValidator.detect_language(core_claim)
+                    quality_score = ContentValidator.calculate_claim_quality_score(
+                        core_claim, is_extractable, language, quality_conf
+                    )
+                    claim_quality = ClaimQuality(
+                        is_extractable=is_extractable,
+                        confidence=quality_conf,
+                        language_detected=language,
+                        length=len(core_claim),
+                        quality_score=quality_score
+                    )
+
+                    claim_id = f"claim_{vid_hash[:16]}"
+                    existing_eda = load_existing_eda_results(claim_id)
+                    if existing_eda:
+                        eda_results = existing_eda
+                    else:
+                        metadata = {
+                            "url": url,
+                            "spoken_claim": visual_cached_result.get("spoken_claim", ""),
+                            "written_claim": visual_cached_result.get("written_claim", ""),
+                            "truth_score": 0.5
+                        }
+                        try:
+                            eda_result = create_and_save_eda_results(
+                                claim_id=claim_id,
+                                analysis_data=visual_cached_result,
+                                verification_data=visual_cached_result.get("verification", {}),
+                                metadata=metadata,
+                                save_full_data=True
+                            )
+                            if eda_result.get("status") == "success":
+                                logger.info(f"EDA results saved to {eda_result.get('results_directory')}")
+                                eda_results = eda_result
+                        except Exception as e:
+                            logger.error(f"Error generating EDA results: {str(e)}")
                 
                 processing_time = (time.time() - start_time) * 1000
                 return AnalysisResponse(
                     status="success",
                     match_type="visual_hash_cache",
                     data=AnalysisData(**visual_cached_result),
+                    claim_quality=claim_quality,
+                    eda_results=eda_results,
                     timestamp=time.time(),
                     processing_time_ms=processing_time
                 )
@@ -206,7 +298,25 @@ def analyze_url(request: Request, analyze_request: AnalyzeRequest):
                 analysis_result["verification"] = verification
                 
                 # Update metadata with final scores
-                metadata["truth_score"] = verification.get("neutrosophic", {}).get("T", 0.5)
+                metadata["truth_score"] = verification.get("neutrosophic_score", {}).get("truth", 0.5)
+                
+                # Generate and save EDA results
+                eda_results = None
+                try:
+                    eda_result = create_and_save_eda_results(
+                        claim_id=claim_id,
+                        analysis_data=analysis_result,
+                        verification_data=verification,
+                        metadata=metadata,
+                        save_full_data=True
+                    )
+                    if eda_result.get("status") == "success":
+                        logger.info(f"EDA results saved to {eda_result.get('results_directory')}")
+                        eda_results = eda_result
+                    else:
+                        logger.warning(f"Failed to save EDA results: {eda_result.get('error')}")
+                except Exception as e:
+                    logger.error(f"Error generating EDA results: {str(e)}")
             
             processing_time = (time.time() - start_time) * 1000
             return AnalysisResponse(
@@ -214,6 +324,7 @@ def analyze_url(request: Request, analyze_request: AnalyzeRequest):
                 match_type="ai_analysis",
                 data=AnalysisData(**analysis_result),
                 claim_quality=claim_quality if core_claim else None,
+                eda_results=eda_results,
                 timestamp=time.time(),
                 processing_time_ms=processing_time
             )
@@ -227,7 +338,7 @@ def analyze_url(request: Request, analyze_request: AnalyzeRequest):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.post("/api/search", response_model=SearchResponse)
-@limiter.limit("10/minute")
+@limiter.limit(RATE_LIMIT_SEARCH)
 def search_claims(request: Request, search_request: SearchRequest):
     """Search for similar claims in the database"""
     query = search_request.query
@@ -255,7 +366,7 @@ def search_claims(request: Request, search_request: SearchRequest):
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 @app.get("/api/stats", response_model=StatsResponse)
-@limiter.limit("20/minute")
+@limiter.limit(RATE_LIMIT_STATS)
 def get_stats(request: Request):
     """Get statistics about cached analyses"""
     try:
@@ -320,7 +431,7 @@ def get_method_comparison(request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to get comparison: {str(e)}")
 
 @app.post("/api/cache/clear")
-@limiter.limit("2/minute")
+@limiter.limit(RATE_LIMIT_CACHE_CLEAR)
 def clear_cache_endpoint(request: Request):
     """Clear cache and ChromaDB"""
     try:
@@ -338,7 +449,7 @@ def clear_cache_endpoint(request: Request):
 
 
 @app.get("/api/health")
-@limiter.limit("30/minute")
+@limiter.limit(RATE_LIMIT_HEALTH)
 def health_check(request: Request):
     """Health check endpoint"""
     return {

@@ -16,6 +16,12 @@ from sklearn.pipeline import FeatureUnion, Pipeline
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 from sklearn.svm import LinearSVC
 
+try:
+    from xgboost import XGBClassifier
+    HAS_XGB = True
+except ImportError:
+    HAS_XGB = False
+
 
 LABEL_MAP = {
     0: "SUPPORT",
@@ -263,6 +269,19 @@ def build_model(model_name: str) -> Pipeline:
             n_jobs=-1,
             random_state=42,
         )
+    elif base_model_name == "xgb" and HAS_XGB:
+        classifier = XGBClassifier(
+            n_estimators=300,
+            max_depth=8,
+            learning_rate=0.1,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            eval_metric="mlogloss",
+            random_state=42,
+            n_jobs=-1,
+        )
+    elif base_model_name == "xgb" and not HAS_XGB:
+        raise ValueError("XGBoost is not installed. Run: pip install xgboost")
     else:
         raise ValueError(f"Unsupported model: {model_name}")
 

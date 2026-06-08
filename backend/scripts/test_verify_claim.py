@@ -14,10 +14,10 @@ def test_verify_claim(test_claim, use_firecrawl=False):
     result = verify_claim(test_claim, use_firecrawl=use_firecrawl)
 
     print("\n[2] Neutrosophic Scores:")
-    neuro = result.get("neutrosophic", {})
-    print(f"    - Truth (T): {neuro.get('T', 0):.2f}")
-    print(f"    - Indeterminacy (I): {neuro.get('I', 0):.2f}")
-    print(f"    - Falsity (F): {neuro.get('F', 0):.2f}")
+    neuro = result.get("neutrosophic_score", {})
+    print(f"    - Truth (T): {neuro.get('truth', 0):.2f}")
+    print(f"    - Indeterminacy (I): {neuro.get('indeterminacy', 0):.2f}")
+    print(f"    - Falsity (F): {neuro.get('falsity', 0):.2f}")
 
     print("\n[3] AI Evidence Findings (Stances):")
     findings = result.get('findings', [])
@@ -35,7 +35,7 @@ def test_verify_claim(test_claim, use_firecrawl=False):
     print(f"\n[5] Final Weighted Truth Score: {result.get('truth_score', 0.0):.3f}")
     print(f"    - Summary: {result.get('summary', 'No summary')}")
 
-    verdict = "TRUE" if neuro.get('T', 0) > 0.6 else ("FALSE" if neuro.get('F', 0) > 0.6 else "UNCERTAIN")
+    verdict = "TRUE" if neuro.get('truth', 0) > 0.6 else ("FALSE" if neuro.get('falsity', 0) > 0.6 else "UNCERTAIN")
     print(f"\n========================================")
     print(f"[+] VERDICT: {verdict}")
     print("========================================\n")

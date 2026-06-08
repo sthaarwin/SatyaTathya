@@ -121,18 +121,29 @@ def interaction_values(rows): return [r["interaction"] for r in rows]
 
 
 def make_tfidf(selector, max_features, ngram_range, analyzer="word"):
-    return ("tfidf", TfidfVectorizer(max_features=max_features, ngram_range=ngram_range, min_df=2 if analyzer == "word" else 1, analyzer=analyzer, sublinear_tf=True, strip_accents="unicode"))
+    min_df = 2 if analyzer == "word" else 1
+    return Pipeline([
+        ("select", FunctionTransformer(selector, validate=False)),
+        ("tfidf", TfidfVectorizer(
+            max_features=max_features, ngram_range=ngram_range,
+            min_df=min_df, analyzer=analyzer,
+            sublinear_tf=True, strip_accents="unicode",
+        )),
+    ])
 
 
 def build_feature_union(variant: str):
     numeric = Pipeline([("engineered", FunctionTransformer(engineered_features, validate=False)), ("scale", StandardScaler())])
     if variant == "basic":
-        return FeatureUnion([("text", TfidfVectorizer(max_features=30000, ngram_range=(1, 2), min_df=2, sublinear_tf=True, strip_accents="unicode")), ("numeric", numeric)])
+        return FeatureUnion([
+            ("text", make_tfidf(text_values, max_features=30000, ngram_range=(1, 2))),
+            ("numeric", numeric),
+        ])
     return FeatureUnion([
-        ("pair_word", TfidfVectorizer(max_features=50000, ngram_range=(1, 3), min_df=2, sublinear_tf=True, strip_accents="unicode")),
-        ("pair_char", TfidfVectorizer(max_features=30000, ngram_range=(3, 5), min_df=1, analyzer="char_wb", sublinear_tf=True, strip_accents="unicode")),
-        ("claim_word", TfidfVectorizer(max_features=15000, ngram_range=(1, 2), min_df=2, sublinear_tf=True, strip_accents="unicode")),
-        ("evidence_word", TfidfVectorizer(max_features=30000, ngram_range=(1, 2), min_df=2, sublinear_tf=True, strip_accents="unicode")),
+        ("pair_word", make_tfidf(interaction_values, max_features=50000, ngram_range=(1, 3))),
+        ("pair_char", make_tfidf(interaction_values, max_features=30000, ngram_range=(3, 5), analyzer="char_wb")),
+        ("claim_word", make_tfidf(claim_values, max_features=15000, ngram_range=(1, 2))),
+        ("evidence_word", make_tfidf(evidence_values, max_features=30000, ngram_range=(1, 2))),
         ("numeric", numeric),
     ])
 
