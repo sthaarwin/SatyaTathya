@@ -7,13 +7,14 @@ from dataclasses import asdict, dataclass
 import joblib
 import numpy as np
 from datasets import load_dataset
+from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import FeatureUnion, Pipeline
-from sklearn.preprocessing import FunctionTransformer, StandardScaler
+from sklearn.preprocessing import FunctionTransformer, LabelEncoder, StandardScaler
 from sklearn.svm import LinearSVC
 
 try:
@@ -21,6 +22,29 @@ try:
     HAS_XGB = True
 except ImportError:
     HAS_XGB = False
+
+
+class _XGBWrapper(BaseEstimator, ClassifierMixin):
+    """Wraps XGBoost to handle string labels via LabelEncoder.
+    Defined at module level so joblib can unpickle it.
+    """
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self._xgb = None
+        self._le = LabelEncoder()
+
+    def fit(self, X, y):
+        y_encoded = self._le.fit_transform(y)
+        self._xgb = XGBClassifier(**self.kwargs)
+        self._xgb.fit(X, y_encoded)
+        self.classes_ = self._le.classes_
+        return self
+
+    def predict(self, X):
+        return self._le.inverse_transform(self._xgb.predict(X))
+
+    def predict_proba(self, X):
+        return self._xgb.predict_proba(X)
 
 
 LABEL_MAP = {
@@ -270,7 +294,7 @@ def build_model(model_name: str) -> Pipeline:
             random_state=42,
         )
     elif base_model_name == "xgb" and HAS_XGB:
-        classifier = XGBClassifier(
+        classifier = _XGBWrapper(
             n_estimators=300,
             max_depth=8,
             learning_rate=0.1,

@@ -21,5 +21,7 @@ joblib
 scikit-learn
 xgboost
 imbalanced-learn
+transformers
+torch
 matplotlib
 pandas

@@ -19,10 +19,12 @@ CURRENT_KEY_INDEX = 0
 ALL_KEYS_EXHAUSTED_AT = 0.0
 USE_LLM_STANCE = os.getenv("USE_LLM_STANCE", "true").lower() == "true"
 USE_LLM_QUERY_OPTIMIZER = os.getenv("USE_LLM_QUERY_OPTIMIZER", "false").lower() == "true"
+USE_NLI_STANCE = os.getenv("USE_NLI_STANCE", "true").lower() == "true"
 MAX_LLM_EVIDENCE_ITEMS = int(os.getenv("MAX_LLM_EVIDENCE_ITEMS", "2"))
 MIN_RELEVANCE_FOR_LLM = float(os.getenv("MIN_RELEVANCE_FOR_LLM", "0.32"))
 MIN_RELEVANCE_FOR_SCORING = float(os.getenv("MIN_RELEVANCE_FOR_SCORING", "0.25"))
 EVIDENCE_SNIPPET_CHARS = int(os.getenv("EVIDENCE_SNIPPET_CHARS", "900"))
+NLI_CONFIDENCE_THRESHOLD = float(os.getenv("NLI_CONFIDENCE_THRESHOLD", "0.6"))
 
 STOP_WORDS = {
     "the", "a", "an", "and", "or", "but", "if", "then", "that", "this", "these",
@@ -563,24 +565,55 @@ def verify_claim(core_claim: str, url: str = None, use_firecrawl: bool = False) 
             local_candidates.append((index, ev, local_eval))
 
         local_candidates.sort(key=lambda item: item[2].get("relevance", 0.0), reverse=True)
+
+        # NLI evaluation tier (local model, more accurate than heuristic)
+        if USE_NLI_STANCE:
+            print("[*] Running NLI stance evaluation on relevant evidence...")
+            try:
+                from services.nli_service import evaluate_with_nli, nli_available
+                if nli_available():
+                    nli_candidates = []
+                    for index, ev, local_eval in local_candidates:
+                        if local_eval.get("relevance", 0.0) >= MIN_RELEVANCE_FOR_SCORING:
+                            nli_eval = evaluate_with_nli(core_claim, ev)
+                            nli_candidates.append((index, ev, nli_eval, local_eval))
+                        else:
+                            nli_candidates.append((index, ev, local_eval, local_eval))
+                    local_candidates = nli_candidates
+            except Exception as e:
+                print(f"[!] NLI evaluation failed: {e}")
+
         llm_budget = max(0, MAX_LLM_EVIDENCE_ITEMS)
         llm_used = 0
         findings = []
 
-        for index, ev, local_eval in local_candidates:
-            if local_eval.get("relevance", 0.0) < MIN_RELEVANCE_FOR_SCORING:
-                eval_result = local_eval
-            elif llm_used < llm_budget and local_eval.get("relevance", 0.0) >= MIN_RELEVANCE_FOR_LLM:
-                local_stance = local_eval.get("stance", "INDETERMINATE")
-                local_confidence = local_eval.get("confidence", 0.0)
-                if local_stance != "INDETERMINATE" and local_confidence >= 0.5:
-                    eval_result = local_eval
+        for item in local_candidates:
+            index, ev, *rest = item
+            if USE_NLI_STANCE and len(rest) == 2:
+                nli_eval, local_eval = rest
+                nli_conf = nli_eval.get("confidence", 0.0)
+                if nli_eval.get("method") == "nli" and nli_conf >= NLI_CONFIDENCE_THRESHOLD:
+                    eval_result = nli_eval
+                elif llm_used < llm_budget and nli_eval.get("relevance", 0.0) >= MIN_RELEVANCE_FOR_LLM:
+                    eval_result = classify_evidence_with_gemini(core_claim, ev, nli_eval)
                 else:
-                    eval_result = classify_evidence_with_gemini(core_claim, ev, local_eval)
-                    if eval_result.get("method") == "gemini_stance":
-                        llm_used += 1
+                    eval_result = nli_eval if nli_eval.get("method") == "nli" else local_eval
             else:
-                eval_result = local_eval
+                local_eval = rest[0]
+                if local_eval.get("relevance", 0.0) < MIN_RELEVANCE_FOR_SCORING:
+                    eval_result = local_eval
+                elif llm_used < llm_budget and local_eval.get("relevance", 0.0) >= MIN_RELEVANCE_FOR_LLM:
+                    local_stance = local_eval.get("stance", "INDETERMINATE")
+                    local_confidence = local_eval.get("confidence", 0.0)
+                    if local_stance != "INDETERMINATE" and local_confidence >= 0.5:
+                        eval_result = local_eval
+                    else:
+                        eval_result = classify_evidence_with_gemini(core_claim, ev, local_eval)
+                else:
+                    eval_result = local_eval
+
+            if eval_result.get("method") == "gemini_stance":
+                llm_used += 1
 
             finding = {
                 "domain": ev.get("domain", ""),
