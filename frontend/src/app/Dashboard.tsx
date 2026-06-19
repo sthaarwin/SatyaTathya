@@ -329,7 +329,7 @@ export default function Dashboard() {
             <>
               <div className="hidden sm:flex items-center gap-2 text-sm text-on-surface-variant">
                 <span className="material-symbols-outlined text-base">person</span>
-                <span className="font-label-sm">{user.email ?? user.full_name ?? 'User'}</span>
+                <span className="font-label-sm">{user.full_name ?? user.email ?? 'User'}</span>
               </div>
               <button
                 type="button"
