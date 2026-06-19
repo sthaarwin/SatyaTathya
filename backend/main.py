@@ -448,6 +448,17 @@ def clear_cache_endpoint(request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to clear cache: {str(e)}")
 
 
+@app.get("/api/sources")
+def get_sources(request: Request):
+    """Return trusted sources with credibility weights"""
+    import json as j
+    with open(os.path.join(os.path.dirname(__file__), "data", "trusted_sources.json")) as f:
+        sources = j.load(f)
+    return {
+        "sources": [{"domain": d, "weight": w} for d, w in sorted(sources.items(), key=lambda x: -x[1])],
+        "timestamp": time.time()
+    }
+
 @app.get("/api/health")
 @limiter.limit(RATE_LIMIT_HEALTH)
 def health_check(request: Request):

@@ -60,6 +60,14 @@ export default function Dashboard() {
     darkMode: false,
   });
   const [recentAnalyses, setRecentAnalyses] = useState<HistoryItem[]>([]);
+  const [sources, setSources] = useState<{domain: string; weight: number}[]>([]);
+
+  useEffect(() => {
+    fetch('/api/sources')
+      .then(r => r.ok ? r.json() : { sources: [] })
+      .then(d => setSources((d.sources ?? []).filter((s: any) => s.weight > 0)))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch('/api/analyses/list')
@@ -490,10 +498,20 @@ export default function Dashboard() {
                 <p className="font-body-md text-on-surface-variant">Review the sources used for credibility checks and fact verification.</p>
               </div>
               <div className="grid grid-cols-1 gap-sm">
-                {['The Kathmandu Post', 'Nepal Press', 'Kantipur Daily', 'BBC News'].map((source) => (
-                  <div key={source} className="p-sm rounded-lg border border-outline-variant/50 bg-surface-container-low">
-                    <p className="font-label-md text-label-md font-semibold">{source}</p>
-                    <p className="font-body-sm text-on-surface-variant">Trusted for verified local and international reporting.</p>
+                {sources.map((s) => (
+                  <div key={s.domain} className="flex items-center justify-between p-sm rounded-lg border border-outline-variant/50 bg-surface-container-low">
+                    <div>
+                      <p className="font-label-md text-label-md font-semibold">{s.domain}</p>
+                      <p className="font-body-sm text-on-surface-variant">Trusted for verified reporting.</p>
+                    </div>
+                    <span className={`font-label-sm text-label-sm px-2 py-0.5 rounded-full ${
+                      s.weight >= 0.95 ? 'bg-green-100 text-green-800' :
+                      s.weight >= 0.8 ? 'bg-blue-100 text-blue-800' :
+                      s.weight >= 0.6 ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-gray-100 text-gray-500'
+                    }`}>
+                      {(s.weight * 100).toFixed(0)}%
+                    </span>
                   </div>
                 ))}
               </div>
