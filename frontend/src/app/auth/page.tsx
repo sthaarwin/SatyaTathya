@@ -67,12 +67,8 @@ export default function AuthPage() {
         throw new Error(data.error || 'Authentication failed.');
       }
 
-      if (mode === 'signup') {
-        setSuccess('Account created! Check your email to confirm your address before signing in.');
-      } else {
-        router.push('/');
-        router.refresh();
-      }
+      router.push('/');
+      router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
     } finally {
