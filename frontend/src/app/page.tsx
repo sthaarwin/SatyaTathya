@@ -9,7 +9,7 @@ interface AnalysisResult {
   written_claim?: string;
   core_news_claim?: string;
   verification?: {
-    final_score?: number;
+    truth_score?: number;
     findings?: string;
   };
 }
@@ -74,9 +74,9 @@ export default function Home() {
       const data: AnalysisResult = await response.json();
       setResult(data);
 
-      const score = data.verification?.final_score;
+      const score = data.verification?.truth_score;
       const scoreNum = score !== undefined && score !== null ? Number(score) : 0;
-      const verdict = scoreNum > 0.6 ? 'Verified' : scoreNum > 0.3 ? 'Misleading' : 'False';
+      const verdict = scoreNum > 0.6 ? 'Verified' : scoreNum > 0.3 ? 'Misleading' : scoreNum < -0.3 ? 'Contradicted' : 'Uncertain';
       const newHistory: HistoryItem = {
         id: 'H-' + Date.now().toString(36).toUpperCase(),
         url,
@@ -125,9 +125,9 @@ export default function Home() {
     localStorage.removeItem(storageKey);
   };
 
-  const score = result?.verification?.final_score;
+  const score = result?.verification?.truth_score;
   const scoreNum = score !== undefined && score !== null ? Number(score) : null;
-  const gaugePercent = scoreNum !== null ? Math.round(scoreNum * 100) : 0;
+  const gaugePercent = scoreNum !== null ? Math.round((scoreNum + 1) * 50) : 0;
 
   return (
     <>
@@ -413,8 +413,8 @@ export default function Home() {
                   <div className="bg-surface-container-lowest p-md newspaper-shadow border border-outline-variant flex flex-col gap-sm">
                     <div className="flex justify-between items-start">
                       <span className="font-label-sm text-label-sm text-on-surface-variant">Just now • Analysis</span>
-                      <span className={`px-xs py-0.5 rounded font-label-sm text-label-sm uppercase ${scoreNum !== null && scoreNum > 0.6 ? 'bg-green-500/10 text-green-700' : scoreNum !== null && scoreNum > 0.3 ? 'bg-orange-500/10 text-orange-700' : 'bg-error/10 text-error'}`}>
-                        {scoreNum !== null && scoreNum > 0.6 ? 'Verified' : scoreNum !== null && scoreNum > 0.3 ? 'Misleading' : 'False'}
+                      <span className={`px-xs py-0.5 rounded font-label-sm text-label-sm uppercase ${scoreNum !== null && scoreNum > 0.6 ? 'bg-green-500/10 text-green-700' : scoreNum !== null && scoreNum > 0.3 ? 'bg-orange-500/10 text-orange-700' : scoreNum !== null && scoreNum < -0.3 ? 'bg-error/10 text-error' : 'bg-surface-container-high text-on-surface-variant'}`}>
+                        {scoreNum !== null && scoreNum > 0.6 ? 'Verified' : scoreNum !== null && scoreNum > 0.3 ? 'Misleading' : scoreNum !== null && scoreNum < -0.3 ? 'Contradicted' : 'Uncertain'}
                       </span>
                     </div>
                     <div className="w-full h-32 bg-surface-container flex items-center justify-center">
@@ -488,7 +488,7 @@ export default function Home() {
                     <div className="pt-md border-t border-outline-variant">
                       <div className="flex justify-between items-end mb-xs">
                         <h4 className="font-headline-sm text-headline-sm">
-                          Verdict: {scoreNum !== null && scoreNum > 0.6 ? 'Verified' : scoreNum !== null && scoreNum > 0.3 ? 'Misleading' : 'False'}
+                          Verdict: {scoreNum !== null && scoreNum > 0.6 ? 'Verified' : scoreNum !== null && scoreNum > 0.3 ? 'Misleading' : scoreNum !== null && scoreNum < -0.3 ? 'Contradicted' : 'Uncertain'}
                         </h4>
                         <span className="font-headline-sm text-headline-sm text-primary">{gaugePercent}%</span>
                       </div>

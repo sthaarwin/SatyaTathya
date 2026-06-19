@@ -551,7 +551,17 @@ def verify_claim(core_claim: str, url: str = None, use_firecrawl: bool = False) 
     except Exception as e:
         print(f"[!] ChromaDB search failed: {e}")
     
-    evidence = search_and_scrape_evidence(core_claim, use_firecrawl=use_firecrawl)
+    # Check evidence cache first
+    from services.db_service import get_cached_evidence, save_evidence_cache
+    evidence = get_cached_evidence(core_claim)
+    if evidence:
+        print(f"[+] Using cached evidence ({len(evidence)} items)")
+    else:
+        evidence = search_and_scrape_evidence(core_claim, use_firecrawl=use_firecrawl)
+        if evidence:
+            save_evidence_cache(core_claim, evidence)
+            print(f"[+] Cached {len(evidence)} evidence items")
+    
     working_result["evidence"] = [
         {"title": e.get("title", ""), "domain": e.get("domain", ""), "url": e.get("url", "")}
         for e in evidence

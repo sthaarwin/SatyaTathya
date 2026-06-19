@@ -85,6 +85,8 @@ def evaluate_with_nli(claim: str, evidence_item: dict) -> dict:
         neutral = float(probs[label_map.get("NEUTRAL", 1)])
         contradiction = float(probs[label_map.get("CONTRADICTION", 2)])
 
+        print(f"[NLI] E={entailment:.3f} N={neutral:.3f} C={contradiction:.3f} | claim={claim[:60]}... | evidence={evidence_text[:80]}...")
+
         if entailment > contradiction and entailment > neutral:
             stance = "SUPPORT"
             confidence = entailment
