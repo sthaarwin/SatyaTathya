@@ -61,6 +61,14 @@ export default function Dashboard() {
   });
   const [recentAnalyses, setRecentAnalyses] = useState<HistoryItem[]>([]);
   const [sources, setSources] = useState<{domain: string; weight: number}[]>([]);
+  const [user, setUser] = useState<{email?: string; full_name?: string | null} | null>(null);
+
+  useEffect(() => {
+    fetch('/api/auth/user')
+      .then(r => r.ok ? r.json() : null)
+      .then(u => setUser(u))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch('/api/sources')
@@ -317,8 +325,24 @@ export default function Dashboard() {
           </button>
         </nav>
         <div className="flex items-center gap-md">
-          <span className="material-symbols-outlined text-primary">health_metrics</span>
-          <span className="material-symbols-outlined text-primary">notifications</span>
+          {user && (
+            <>
+              <div className="hidden sm:flex items-center gap-2 text-sm text-on-surface-variant">
+                <span className="material-symbols-outlined text-base">person</span>
+                <span className="font-label-sm">{user.email ?? user.full_name ?? 'User'}</span>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  await fetch('/api/auth/logout', { method: 'POST' });
+                  window.location.href = '/auth';
+                }}
+                className="text-primary font-label-md text-label-md hover:text-primary/80 transition-colors"
+              >
+                Sign Out
+              </button>
+            </>
+          )}
         </div>
       </header>
 
