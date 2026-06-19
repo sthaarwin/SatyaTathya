@@ -1,0 +1,61 @@
+{
+  "dataset": "rexarski/climate_fever_fixed",
+  "split": "test",
+  "test_size": 1535,
+  "metrics": [
+    {
+      "model": "svm_rich",
+      "accuracy": 0.6827,
+      "macro_f1": 0.5843,
+      "weighted_f1": 0.6825
+    },
+    {
+      "model": "logreg_rich",
+      "accuracy": 0.6664,
+      "macro_f1": 0.579,
+      "weighted_f1": 0.6717
+    },
+    {
+      "model": "svm",
+      "accuracy": 0.6691,
+      "macro_f1": 0.5702,
+      "weighted_f1": 0.6702
+    },
+    {
+      "model": "ensemble_verifier",
+      "accuracy": 0.6762,
+      "macro_f1": 0.57,
+      "weighted_f1": 0.6752
+    },
+    {
+      "model": "voting_ensemble",
+      "accuracy": 0.6717,
+      "macro_f1": 0.5675,
+      "weighted_f1": 0.6721
+    },
+    {
+      "model": "logreg",
+      "accuracy": 0.6417,
+      "macro_f1": 0.5567,
+      "weighted_f1": 0.6519
+    },
+    {
+      "model": "random_forest",
+      "accuracy": 0.6893,
+      "macro_f1": 0.5103,
+      "weighted_f1": 0.6533
+    },
+    {
+      "model": "random_forest_tuned_rich",
+      "accuracy": 0.6736,
+      "macro_f1": 0.4204,
+      "weighted_f1": 0.6019
+    },
+    {
+      "model": "heuristic",
+      "accuracy": 0.645,
+      "macro_f1": 0.2859,
+      "weighted_f1": 0.5272
+    }
+  ]
+}

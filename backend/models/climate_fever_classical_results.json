@@ -1,0 +1,11 @@
+[
+  {
+    "model": "xgb_rich",
+    "dataset": "rexarski/climate_fever_fixed",
+    "train_size": 800,
+    "test_size": 200,
+    "accuracy": 0.635,
+    "macro_f1": 0.32954754733346403,
+    "weighted_f1": 0.5356832682813808
+  }
+]
