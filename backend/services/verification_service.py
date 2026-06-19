@@ -87,6 +87,8 @@ def calculate_weighted_score(findings):
         elif stance == "CONTRADICT":
             contradict_sum += evidence_weight
             total_weight += evidence_weight
+        elif stance == "INDETERMINATE":
+            total_weight += evidence_weight * 0.3
     
     truth_score = (support_sum - contradict_sum) / total_weight if total_weight > 0 else 0.0
 
@@ -160,6 +162,44 @@ def extract_search_query(claim: str) -> str:
     # If it fails, fallback to the first 8 words natively
     return " ".join(claim.split()[:8])
 
+def _search_ddg(query: str, max_results: int = 10):
+    """Search DuckDuckGo via ddgs library. Single search, handles CAPTCHA."""
+    for attempt in range(2):
+        try:
+            return list(DDGS().text(query, max_results=max_results))
+        except Exception as e:
+            print(f"[-] DDG attempt {attempt + 1}/2: {e}")
+            if attempt < 1:
+                time.sleep(3)
+    return []
+
+def _scrape_article(url: str, title: str = "") -> dict | None:
+    """Download and parse a single article, return evidence dict or None."""
+    try:
+        parsed = urlparse(url)
+        if len(parsed.path) < 5 or parsed.path == "/":
+            return None
+        domain = parsed.netloc
+        from newspaper import Article
+        article = Article(url, fetch_images=False, request_timeout=10)
+        article.download()
+        article.parse()
+        text_content = article.text
+        if not text_content.strip():
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            resp = requests.get(url, headers=headers, timeout=10)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            text_content = "\n".join(p.get_text() for p in soup.find_all('p'))
+        return {
+            "title": article.title if article.title else title,
+            "url": url,
+            "domain": domain,
+            "content": text_content[:1500]
+        }
+    except Exception as e:
+        print(f"[-] Failed to scrape {url}: {e}")
+    return None
+
 def search_and_scrape_evidence(query: str, use_firecrawl: bool = False):
     optimized_query = extract_search_query(query)
     print(f"[*] Optimizing search query to: '{optimized_query}'")
@@ -171,106 +211,64 @@ def search_and_scrape_evidence(query: str, use_firecrawl: bool = False):
             print(f"[*] Using Firecrawl API to search and scrape.")
             try:
                 app = FirecrawlApp(api_key=FIRECRAWL_API_KEY)
-                response = app.search(query=optimized_query, limit=3, scrape_options={"formats": ["markdown"]})
-                evidence = []
+                response = app.search(query=optimized_query, limit=5, scrape_options={"formats": ["markdown"]})
+                firecrawl_evidence = []
                 if response and 'data' in response:
                     for item in response['data']:
                         url = item.get('url', '')
                         domain = urlparse(url).netloc
-                        evidence.append({
+                        firecrawl_evidence.append({
                             "title": item.get('title', 'Unknown'),
                             "url": url,
                             "domain": domain,
                             "content": item.get('markdown', '')[:1500]
                         })
-                if evidence:
-                    return evidence
+                if firecrawl_evidence:
+                    return firecrawl_evidence
                 else:
                     print("[-] Firecrawl found 0 results. Falling back to simple scraper.")
             except Exception as e:
                 print(f"[-] Firecrawl Failed: {e}. Falling back to simple scraper.")
-
-    searchable_domains = [domain for domain, weight in SOURCE_WEIGHTS.items() if weight > 0]
-    site_str = " OR ".join([f"site:{domain}" for domain in searchable_domains])
-    search_query = f"{optimized_query} {site_str}" if site_str else optimized_query
     
-    print(f"[*] Using DuckDuckGo + BeautifulSoup to search and scrape.")
-    results = []
-    for attempt in range(3):
-        try:
-            results = DDGS().text(search_query, max_results=3)
-            if results:
-                break
-        except Exception as e:
-            print(f"[-] DuckDuckGo search attempt {attempt + 1}/3 failed: {e}")
-            if attempt < 2:
-                time.sleep(3)
+    # Use short keyword query — long queries confuse DDG
+    keywords = " ".join(optimized_query.split()[:4]) if len(optimized_query.split()) > 4 else optimized_query
     
+    seen_urls = set()
     evidence = []
-    if not results:
-        print("[-] DuckDuckGo returned no results. Trying direct HTTP fallback...")
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            resp = requests.get(
-                f"https://html.duckduckgo.com/html/?q={requests.utils.quote(search_query)}",
-                headers=headers, timeout=15
-            )
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            for link in soup.select('.result__a'):
-                href = link.get('href')
-                if href:
-                    parsed = urlparse(href)
-                    qs = parse_qs(parsed.query)
-                    actual_url = qs.get('uddg', [None])[0] or href
-                    snippet_el = link.find_next('.result__snippet')
-                    results.append({
-                        'href': actual_url,
-                        'title': link.get_text(strip=True),
-                        'body': snippet_el.get_text(strip=True) if snippet_el else '',
-                    })
-            results = results[:3]
-        except Exception as e2:
-            print(f"[-] Direct DuckDuckGo fallback also failed: {e2}")
     
-    if not results:
-        return evidence
-        
-    for res in results:
-        url = res.get('href')
-        
-        # Prevent scraping root homepages (e.g. onlinekhabar.com/) which contain generic spam
-        parsed = urlparse(url)
-        if len(parsed.path) < 5 or parsed.path == "/":
+    print(f"[*] Searching for '{keywords}'...")
+    raw = _search_ddg(keywords, max_results=12)
+    
+    for r in raw:
+        url = r.get('href') or r.get('link', '')
+        if not url or url in seen_urls:
             continue
-            
-        title = res.get('title')
-        domain = urlparse(url).netloc
-        
-        print(f"[*] Scraping evidence from: {domain}...")
-        try:
-            from newspaper import Article
-            article = Article(url, fetch_images=False, request_timeout=10)
-            article.download()
-            article.parse()
-            text_content = article.text
-            
-            if not text_content.strip():
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-                response = requests.get(url, headers=headers, timeout=10)
-                soup = BeautifulSoup(response.text, 'html.parser')
-                paragraphs = soup.find_all('p')
-                text_content = "\n".join([p.get_text() for p in paragraphs])
-            
-            evidence.append({
-                "title": article.title if article.title else title,
-                "url": url,
-                "domain": domain,
-                "content": text_content[:1500]
-            })
-        except Exception as e:
-            print(f"[-] Failed to scrape {url}: {e}")
-            
-    return evidence
+        seen_urls.add(url)
+        scraped = _scrape_article(url, r.get('title', ''))
+        if scraped:
+            evidence.append(scraped)
+        if len(evidence) >= 8:
+            break
+    
+    # If short on evidence, try with broader keywords
+    if len(evidence) < 4:
+        broader = " ".join(keywords.split()[:2])
+        print(f"[*] Broadening search to '{broader}'...")
+        time.sleep(2)
+        raw = _search_ddg(broader, max_results=8)
+        for r in raw:
+            url = r.get('href') or r.get('link', '')
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            scraped = _scrape_article(url, r.get('title', ''))
+            if scraped:
+                evidence.append(scraped)
+            if len(evidence) >= 8:
+                break
+    
+    print(f"[+] Collected {len(evidence)} evidence items from {len({e['domain'] for e in evidence})} sources")
+    return evidence[:8]
 
 import time
 
@@ -520,9 +518,9 @@ Evidence Content: {evidence_text}
 def select_verdict(truth_score: float, confidence: float) -> str:
     if confidence < 0.35:
         return "uncertain"
-    if truth_score >= 0.35:
+    if truth_score >= 0.5:
         return "likely_true"
-    if truth_score <= -0.35:
+    if truth_score <= -0.5:
         return "likely_false"
     return "uncertain"
 

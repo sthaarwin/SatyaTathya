@@ -4,14 +4,31 @@ export const dynamic = 'force-dynamic';
 
 import { useEffect, useState } from 'react';
 
+interface EvidenceFinding {
+  domain: string;
+  title: string;
+  stance: string;
+}
+
+interface VerificationResult {
+  truth_score?: number;
+  evidence_findings?: EvidenceFinding[];
+  reasoning?: string;
+  confidence?: number;
+}
+
+interface ApiResponse {
+  status: string;
+  match_type: string;
+  data?: AnalysisResult;
+  timestamp?: number;
+}
+
 interface AnalysisResult {
   spoken_claim?: string;
   written_claim?: string;
   core_news_claim?: string;
-  verification?: {
-    truth_score?: number;
-    findings?: string;
-  };
+  verification?: VerificationResult;
 }
 
 interface HistoryItem {
@@ -20,6 +37,12 @@ interface HistoryItem {
   verdict: string;
   score: number;
   timestamp: string;
+  spoken_claim?: string;
+  written_claim?: string;
+  core_news_claim?: string;
+  evidence_findings?: EvidenceFinding[];
+  reasoning?: string;
+  thumbnail?: string;
 }
 
 export default function Home() {
@@ -28,6 +51,9 @@ export default function Home() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [analysisId, setAnalysisId] = useState('');
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [cardExpanded, setCardExpanded] = useState(false);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'verify' | 'recent' | 'archive' | 'sources' | 'settings' | 'about'>('verify');
   const [settings, setSettings] = useState({
     autoScan: false,
@@ -50,6 +76,25 @@ export default function Home() {
     }
   }, []);
 
+  const fetchVideoThumbnail = async (videoUrl: string) => {
+    setThumbnailUrl(null);
+    try {
+      const oembedUrl = videoUrl.includes('tiktok.com')
+        ? `https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl)}`
+        : videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')
+        ? `https://www.youtube.com/oembed?url=${encodeURIComponent(videoUrl)}&format=json`
+        : videoUrl.includes('instagram.com')
+        ? `https://api.instagram.com/oembed?url=${encodeURIComponent(videoUrl)}`
+        : null;
+      if (!oembedUrl) return;
+      const res = await fetch(oembedUrl);
+      const data = await res.json();
+      if (data.thumbnail_url) setThumbnailUrl(data.thumbnail_url);
+    } catch {
+      // thumbnail not available — fallback to icon
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url) return;
@@ -71,10 +116,12 @@ export default function Home() {
         throw new Error('Failed to analyze the video');
       }
 
-      const data: AnalysisResult = await response.json();
-      setResult(data);
+      const apiResponse: ApiResponse = await response.json();
+      setResult(apiResponse.data ?? null);
+      fetchVideoThumbnail(url);
 
-      const score = data.verification?.truth_score;
+      const resultData = apiResponse.data;
+      const score = resultData?.verification?.truth_score;
       const scoreNum = score !== undefined && score !== null ? Number(score) : 0;
       const verdict = scoreNum > 0.6 ? 'Verified' : scoreNum > 0.3 ? 'Misleading' : scoreNum < -0.3 ? 'Contradicted' : 'Uncertain';
       const newHistory: HistoryItem = {
@@ -83,6 +130,12 @@ export default function Home() {
         verdict,
         score: scoreNum,
         timestamp: new Date().toLocaleString(),
+        spoken_claim: resultData?.spoken_claim,
+        written_claim: resultData?.written_claim,
+        core_news_claim: resultData?.core_news_claim,
+        evidence_findings: resultData?.verification?.evidence_findings,
+        reasoning: resultData?.verification?.reasoning,
+        thumbnail: thumbnailUrl ?? undefined,
       };
 
       setRecentAnalyses((prev) => {
@@ -128,6 +181,86 @@ export default function Home() {
   const score = result?.verification?.truth_score;
   const scoreNum = score !== undefined && score !== null ? Number(score) : null;
   const gaugePercent = scoreNum !== null ? Math.round((scoreNum + 1) * 50) : 0;
+
+  const renderHistoryItems = () => {
+    if (!recentAnalyses.length) {
+      return (
+        <div className="text-center py-xl text-on-surface-variant">
+          <span className="material-symbols-outlined text-4xl">history</span>
+          <p className="mt-sm">No recent checks yet. Run a verification to populate this list.</p>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-sm">
+        {recentAnalyses.map((item) => {
+          const isExpanded = expandedHistoryId === item.id;
+          return (
+            <div
+              key={item.id}
+              className="p-sm bg-surface-container-low rounded-lg border border-outline-variant/50 cursor-pointer transition-all hover:border-primary"
+              onClick={() => setExpandedHistoryId(isExpanded ? null : item.id)}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="font-label-md text-label-md font-semibold">{item.verdict}</p>
+                  <p className="font-body-sm text-on-surface-variant line-clamp-1">{item.url}</p>
+                </div>
+                <span className="font-label-sm text-label-sm text-on-surface-variant shrink-0">{item.score * 100}%</span>
+                <span className="material-symbols-outlined text-on-surface-variant transition-transform shrink-0" style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                  expand_more
+                </span>
+              </div>
+              <p className="mt-2 font-body-sm text-on-surface-variant">{item.timestamp}</p>
+              {isExpanded && (item.evidence_findings || item.reasoning || item.core_news_claim) && (
+                <div className="border-t border-outline-variant pt-md mt-sm space-y-md">
+                  {item.core_news_claim && (
+                    <div>
+                      <h5 className="font-label-sm text-label-sm text-on-surface-variant uppercase mb-xs">Claim</h5>
+                      <p className="font-body-sm">{item.core_news_claim}</p>
+                    </div>
+                  )}
+                  {item.evidence_findings && item.evidence_findings.length > 0 && (
+                    <div>
+                      <h5 className="font-label-sm text-label-sm text-on-surface-variant uppercase mb-xs">Evidence Findings</h5>
+                      <div className="space-y-xs">
+                        {item.evidence_findings.map((ef: EvidenceFinding, i: number) => (
+                          <div key={i} className="flex items-center justify-between p-xs bg-surface-container-low rounded border border-outline-variant/30">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-body-sm truncate">{ef.domain}</p>
+                            </div>
+                            <span className={`font-label-sm text-label-sm uppercase ml-sm shrink-0 ${ef.stance === 'SUPPORT' ? 'text-green-600' : ef.stance === 'CONTRADICT' ? 'text-error' : 'text-on-surface-variant'}`}>{ef.stance}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {item.reasoning && (
+                    <div>
+                      <h5 className="font-label-sm text-label-sm text-on-surface-variant uppercase mb-xs">Reasoning</h5>
+                      <p className="font-body-sm text-on-surface-variant">{item.reasoning}</p>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-md">
+                    <div className="flex-1">
+                      <div className="flex justify-between text-label-xs text-on-surface-variant mb-xs">
+                        <span>Fabricated</span>
+                        <span>Authentic</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
+                        <div className="h-full verification-gauge-bar" style={{ width: `${Math.round((item.score + 1) * 50)}%` }}></div>
+                      </div>
+                    </div>
+                    <span className="font-label-md text-label-md text-primary">{Math.round((item.score + 1) * 50)}%</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -251,27 +384,7 @@ export default function Home() {
                   Clear History
                 </button>
               </div>
-              {recentAnalyses.length ? (
-                <div className="space-y-sm">
-                  {recentAnalyses.map((item) => (
-                    <div key={item.id} className="p-sm bg-surface-container-low rounded-lg border border-outline-variant/50">
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
-                          <p className="font-label-md text-label-md font-semibold">{item.verdict}</p>
-                          <p className="font-body-sm text-on-surface-variant line-clamp-1">{item.url}</p>
-                        </div>
-                        <span className="font-label-sm text-label-sm text-on-surface-variant">{item.score * 100}%</span>
-                      </div>
-                      <p className="mt-2 font-body-sm text-on-surface-variant">{item.timestamp}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-xl text-on-surface-variant">
-                  <span className="material-symbols-outlined text-4xl">history</span>
-                  <p className="mt-sm">No recent checks yet. Run a verification to populate this list.</p>
-                </div>
-              )}
+              {renderHistoryItems()}
             </div>
           </section>
         )}
@@ -320,26 +433,7 @@ export default function Home() {
                 </div>
                 <span className="font-label-sm text-label-sm text-on-surface-variant">{recentAnalyses.length} records</span>
               </div>
-              {recentAnalyses.length ? (
-                <div className="space-y-sm">
-                  {recentAnalyses.map((item) => (
-                    <div key={item.id} className="p-sm bg-surface-container-low rounded-lg border border-outline-variant/50">
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
-                          <p className="font-label-md text-label-md font-semibold">{item.verdict}</p>
-                          <p className="font-body-sm text-on-surface-variant line-clamp-1">{item.url}</p>
-                        </div>
-                        <span className="font-label-sm text-label-sm text-on-surface-variant">{item.score * 100}%</span>
-                      </div>
-                      <p className="mt-2 font-body-sm text-on-surface-variant">{item.timestamp}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-lg border border-outline-variant/50 bg-surface-container-low p-xl text-center text-on-surface-variant">
-                  Your archive is empty. Perform a verification to start saving results.
-                </div>
-              )}
+              {renderHistoryItems()}
             </div>
           </section>
         )}
@@ -410,20 +504,70 @@ export default function Home() {
 
               <div className="grid grid-cols-1 gap-gutter">
                 {result ? (
-                  <div className="bg-surface-container-lowest p-md newspaper-shadow border border-outline-variant flex flex-col gap-sm">
+                  <div
+                    className="bg-surface-container-lowest p-md newspaper-shadow border border-outline-variant flex flex-col gap-sm cursor-pointer transition-all hover:border-primary"
+                    onClick={() => setCardExpanded(!cardExpanded)}
+                  >
                     <div className="flex justify-between items-start">
                       <span className="font-label-sm text-label-sm text-on-surface-variant">Just now • Analysis</span>
                       <span className={`px-xs py-0.5 rounded font-label-sm text-label-sm uppercase ${scoreNum !== null && scoreNum > 0.6 ? 'bg-green-500/10 text-green-700' : scoreNum !== null && scoreNum > 0.3 ? 'bg-orange-500/10 text-orange-700' : scoreNum !== null && scoreNum < -0.3 ? 'bg-error/10 text-error' : 'bg-surface-container-high text-on-surface-variant'}`}>
                         {scoreNum !== null && scoreNum > 0.6 ? 'Verified' : scoreNum !== null && scoreNum > 0.3 ? 'Misleading' : scoreNum !== null && scoreNum < -0.3 ? 'Contradicted' : 'Uncertain'}
                       </span>
                     </div>
-                    <div className="w-full h-32 bg-surface-container flex items-center justify-center">
-                      <span className="material-symbols-outlined text-4xl text-outline-variant">article</span>
+                    <div className="w-full h-32 bg-surface-container flex items-center justify-center overflow-hidden rounded">
+                      {thumbnailUrl ? (
+                        <img src={thumbnailUrl} alt="Video thumbnail" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="material-symbols-outlined text-4xl text-outline-variant">article</span>
+                      )}
                     </div>
-                    <h4 className="font-headline-sm text-headline-sm leading-tight">Analysis Complete</h4>
-                    <p className="font-body-md text-body-md text-on-surface-variant line-clamp-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-headline-sm text-headline-sm leading-tight">Analysis Complete</h4>
+                      <span className="material-symbols-outlined text-on-surface-variant transition-transform" style={{ transform: cardExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                        expand_more
+                      </span>
+                    </div>
+                    <p className={`font-body-md text-body-md text-on-surface-variant ${cardExpanded ? '' : 'line-clamp-2'}`}>
                       {result.core_news_claim || result.spoken_claim || 'Analysis results available.'}
                     </p>
+                    {cardExpanded && (
+                      <div className="border-t border-outline-variant pt-md mt-sm space-y-md">
+                        <div>
+                          <h5 className="font-label-md text-label-md text-on-surface-variant uppercase mb-xs">Evidence Findings</h5>
+                          <div className="space-y-xs">
+                            {(result.verification?.evidence_findings ?? []).map((item: EvidenceFinding, i: number) => (
+                              <div key={i} className="flex items-center justify-between p-xs bg-surface-container-low rounded border border-outline-variant/30">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-body-sm truncate">{item.domain}</p>
+                                  <p className="font-body-xs text-on-surface-variant truncate">{item.title}</p>
+                                </div>
+                                <span className={`font-label-sm text-label-sm uppercase ml-sm shrink-0 ${item.stance === 'SUPPORT' ? 'text-green-600' : item.stance === 'CONTRADICT' ? 'text-error' : 'text-on-surface-variant'}`}>{item.stance}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        {result.verification?.reasoning && (
+                          <div>
+                            <h5 className="font-label-md text-label-md text-on-surface-variant uppercase mb-xs">Reasoning</h5>
+                            <p className="font-body-md text-body-md text-on-surface-variant">{result.verification.reasoning}</p>
+                          </div>
+                        )}
+                        {scoreNum !== null && (
+                          <div className="flex items-center gap-md">
+                            <div className="flex-1">
+                              <div className="flex justify-between text-label-sm text-on-surface-variant mb-xs">
+                                <span>Fabricated</span>
+                                <span>Authentic</span>
+                              </div>
+                              <div className="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
+                                <div className="h-full verification-gauge-bar" style={{ width: `${Math.round((scoreNum + 1) * 50)}%` }}></div>
+                              </div>
+                            </div>
+                            <span className="font-headline-sm text-headline-sm text-primary">{Math.round((scoreNum + 1) * 50)}%</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="bg-surface-container-lowest p-md newspaper-shadow border border-outline-variant flex flex-col items-center justify-center text-center py-xl gap-sm">
@@ -476,11 +620,11 @@ export default function Home() {
                     <div className="space-y-sm">
                       <h4 className="font-label-md text-label-md text-on-surface-variant uppercase">Fact-Check References</h4>
                       <div className="space-y-xs">
-                        {['The Kathmandu Post', 'Nepal Press', 'Kantipur Daily'].map((source) => (
-                          <a key={source} className="flex items-center justify-between p-xs hover:bg-surface-container transition-colors group border-b border-outline-variant/20" href="#">
-                            <span className="font-body-md">{source}</span>
-                            <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">open_in_new</span>
-                          </a>
+                        {(result.verification?.evidence_findings ?? []).map((item: EvidenceFinding, i: number) => (
+                          <div key={i} className="flex items-center justify-between p-xs hover:bg-surface-container transition-colors group border-b border-outline-variant/20">
+                            <span className="font-body-md truncate">{item.domain}</span>
+                            <span className={`font-label-sm text-label-sm uppercase ${item.stance === 'SUPPORT' ? 'text-green-600' : item.stance === 'CONTRADICT' ? 'text-error' : 'text-on-surface-variant'}`}>{item.stance}</span>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -499,9 +643,9 @@ export default function Home() {
                         <span>Fabricated</span>
                         <span>Authentic</span>
                       </div>
-                      {result.verification?.findings && (
+                      {result.verification?.reasoning && (
                         <p className="mt-md font-body-md text-body-md text-on-surface-variant italic">
-                          {result.verification.findings}
+                          {result.verification.reasoning}
                         </p>
                       )}
                     </div>

@@ -4,45 +4,36 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Config
-NLI_MODEL_NAME = os.getenv("NLI_MODEL_NAME", "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli")
+NLI_MODEL_NAME = os.getenv("NLI_MODEL_NAME", "facebook/bart-large-mnli")
 USE_NLI_STANCE = os.getenv("USE_NLI_STANCE", "true").lower() == "true"
 
-_nli_pipeline = None
+_classifier = None
 
 
-def _load_nli_model():
-    """Lazy-load the NLI model once (downloaded on first use, ~1GB)."""
-    global _nli_pipeline
-    if _nli_pipeline is not None:
+def _load_classifier():
+    global _classifier
+    if _classifier is not None:
         return True
     try:
-        from transformers import AutoModelForSequenceClassification, AutoTokenizer
-        import torch
-        logger.info(f"Loading NLI model: {NLI_MODEL_NAME}...")
-        tokenizer = AutoTokenizer.from_pretrained(NLI_MODEL_NAME)
-        model = AutoModelForSequenceClassification.from_pretrained(NLI_MODEL_NAME)
-        _nli_pipeline = {
-            "model": model,
-            "tokenizer": tokenizer,
-            "id2label": model.config.id2label,
-        }
-        logger.info("NLI model loaded successfully")
+        from transformers import pipeline
+        logger.info(f"Loading zero-shot classifier: {NLI_MODEL_NAME}...")
+        _classifier = pipeline(
+            "zero-shot-classification",
+            model=NLI_MODEL_NAME,
+            device=-1,
+        )
+        logger.info("Zero-shot classifier loaded successfully")
         return True
     except Exception as e:
-        logger.error(f"Failed to load NLI model: {e}")
+        logger.error(f"Failed to load classifier: {e}")
         return False
 
 
 def nli_available() -> bool:
-    return _nli_pipeline is not None or _load_nli_model()
+    return _classifier is not None or _load_classifier()
 
 
 def evaluate_with_nli(claim: str, evidence_item: dict) -> dict:
-    """
-    Evaluate claim-evidence pair using an NLI model.
-    Returns same dict format as evaluate_evidence_embedding().
-    """
     evidence_text = evidence_item.get("content", "")[:1500]
     if not evidence_text or not claim:
         return {
@@ -54,68 +45,55 @@ def evaluate_with_nli(claim: str, evidence_item: dict) -> dict:
             "method": "nli",
         }
 
-    if not _load_nli_model():
+    if not _load_classifier():
         return {
             "stance": "INDETERMINATE",
             "relevance": 0.0,
             "similarity": 0.0,
             "confidence": 0.0,
-            "reasoning": "NLI model not available",
+            "reasoning": "Classifier not available",
             "method": "nli_fallback",
         }
 
     try:
-        import torch
-        # NLI format: (premise=evidence, hypothesis=claim)
-        inputs = _nli_pipeline["tokenizer"](
-            evidence_text, claim,
-            return_tensors="pt",
-            truncation=True,
-            padding=True,
-            max_length=512,
-        )
-        with torch.no_grad():
-            outputs = _nli_pipeline["model"](**inputs)
-            probs = torch.nn.functional.softmax(outputs.logits[0], dim=-1)
+        labels = ["supports this claim", "contradicts this claim", "unrelated"]
+        result = _classifier(evidence_text, labels)
 
-        # Standard NLI label order: 0=ENTAILMENT, 1=NEUTRAL, 2=CONTRADICTION
-        id2label = _nli_pipeline["id2label"]
-        label_map = {v.upper(): k for k, v in id2label.items()}
-        entailment = float(probs[label_map.get("ENTAILMENT", 0)])
-        neutral = float(probs[label_map.get("NEUTRAL", 1)])
-        contradiction = float(probs[label_map.get("CONTRADICTION", 2)])
+        scores = dict(zip(result["labels"], result["scores"]))
+        support = scores.get("supports this claim", 0.0)
+        contradict = scores.get("contradicts this claim", 0.0)
+        unrelated = scores.get("unrelated", 0.0)
 
-        print(f"[NLI] E={entailment:.3f} N={neutral:.3f} C={contradiction:.3f} | claim={claim[:60]}... | evidence={evidence_text[:80]}...")
-
-        if entailment > contradiction and entailment > neutral:
+        MARGIN = 0.05
+        if support > contradict and support > unrelated and (support - max(contradict, unrelated)) > MARGIN:
             stance = "SUPPORT"
-            confidence = entailment
-            relevance = entailment + neutral
-        elif contradiction > entailment and contradiction > neutral:
+            confidence = support
+            relevance = support
+        elif contradict > support and contradict > unrelated and (contradict - max(support, unrelated)) > MARGIN:
             stance = "CONTRADICT"
-            confidence = contradiction
-            relevance = contradiction + neutral
+            confidence = contradict
+            relevance = contradict
         else:
             stance = "INDETERMINATE"
-            confidence = neutral
-            relevance = neutral
+            confidence = max(support, contradict, unrelated)
+            relevance = max(support, contradict, unrelated)
 
         return {
             "stance": stance,
             "relevance": round(min(1.0, relevance), 3),
-            "similarity": round(entailment + neutral, 3),
+            "similarity": round(max(support, contradict) + unrelated, 3),
             "confidence": round(confidence, 3),
-            "reasoning": f"NLI: E={entailment:.3f}, C={contradiction:.3f}, N={neutral:.3f}",
+            "reasoning": f"Zero-shot: S={support:.3f} C={contradict:.3f} U={unrelated:.3f}",
             "method": "nli",
         }
     except Exception as e:
-        logger.warning(f"NLI evaluation failed: {e}")
+        logger.warning(f"Zero-shot classification failed: {e}")
 
     return {
         "stance": "INDETERMINATE",
         "relevance": 0.0,
         "similarity": 0.0,
         "confidence": 0.0,
-        "reasoning": "NLI evaluation error",
+        "reasoning": "Classification error",
         "method": "nli_fallback",
     }
