@@ -1,0 +1,25 @@
+{
+  "dataset": "rexarski/climate_fever_fixed",
+  "split": "test",
+  "test_size": 200,
+  "metrics": [
+    {
+      "model": "ensemble_verifier",
+      "accuracy": 0.68,
+      "macro_f1": 0.6193,
+      "weighted_f1": 0.6865
+    },
+    {
+      "model": "nli_deberta_v3",
+      "accuracy": 0.615,
+      "macro_f1": 0.4534,
+      "weighted_f1": 0.5578
+    },
+    {
+      "model": "heuristic",
+      "accuracy": 0.63,
+      "macro_f1": 0.2898,
+      "weighted_f1": 0.5129
+    }
+  ]
+}

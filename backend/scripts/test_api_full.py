@@ -51,10 +51,10 @@ def test_full_pipeline():
         verification = data.get("verification", {})
         if verification:
             print(f"\n[4] Verification Results:")
-            neuro = verification.get("neutrosophic", {})
-            print(f"    - Truth (T): {neuro.get('T', 0):.2f}")
-            print(f"    - Indeterminacy (I): {neuro.get('I', 0):.2f}")
-            print(f"    - Falsity (F): {neuro.get('F', 0):.2f}")
+            neuro = verification.get("neutrosophic_score", {})
+            print(f"    - Truth (T): {neuro.get('truth', 0):.2f}")
+            print(f"    - Indeterminacy (I): {neuro.get('indeterminacy', 0):.2f}")
+            print(f"    - Falsity (F): {neuro.get('falsity', 0):.2f}")
             print(f"    - Evidence sources: {len(verification.get('evidence', []))}")
             print(f"    - Summary: {verification.get('summary', 'N/A')[:100]}")
 

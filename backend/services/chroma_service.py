@@ -1,7 +1,6 @@
 import os
 import chromadb
 from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
 import numpy as np
 
 
@@ -11,12 +10,25 @@ os.makedirs(CHROMA_DB_PATH, exist_ok=True)
 chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
 collection = chroma_client.get_or_create_collection(name="satya_claims")
 
-# Initialize embedding model
-model = SentenceTransformer('all-MiniLM-L6-v2')
+model = None
+
+
+def get_embedding_model():
+    """
+    Get the sentence-transformer model instance, initializing it only once on first call.
+    This prevents unnecessary network lookups or heavy model loading during module import.
+    """
+    global model
+    if model is None:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+    return model
 
 def encode_text(text: str):
-    """Generate vector embedding from text."""
-    return model.encode(text).tolist()
+    """
+    Generate vector embedding from text using the lazy-loaded model.
+    """
+    return get_embedding_model().encode(text).tolist()
 
 def add_claim_to_db(claim_id: str, core_news_claim: str, metadata: dict):
     """Add a verified claim to ChromaDB."""
@@ -49,6 +61,7 @@ def search_similar_claims(core_news_claim: str, threshold: float = 1.0):
 
 def compute_similarity(text1: str, text2: str) -> float:
     """Compute cosine similarity between two texts using embeddings."""
+    model = get_embedding_model()
     emb1 = model.encode(text1)
     emb2 = model.encode(text2)
     similarity = np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2))

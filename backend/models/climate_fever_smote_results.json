@@ -1,0 +1,29 @@
+[
+  {
+    "model": "logreg_smote",
+    "dataset": "rexarski/climate_fever_fixed",
+    "train_size": 3438,
+    "test_size": 860,
+    "accuracy": 0.6511627906976745,
+    "macro_f1": 0.5607273186897999,
+    "weighted_f1": 0.6530626210260256
+  },
+  {
+    "model": "svm_smote",
+    "dataset": "rexarski/climate_fever_fixed",
+    "train_size": 3438,
+    "test_size": 860,
+    "accuracy": 0.6523255813953488,
+    "macro_f1": 0.5599405749421215,
+    "weighted_f1": 0.6530347297924032
+  },
+  {
+    "model": "random_forest_smote",
+    "dataset": "rexarski/climate_fever_fixed",
+    "train_size": 3438,
+    "test_size": 860,
+    "accuracy": 0.6779069767441861,
+    "macro_f1": 0.46409813507151915,
+    "weighted_f1": 0.6142849399340601
+  }
+]
