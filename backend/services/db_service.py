@@ -84,6 +84,16 @@ def init_db():
     conn.close()
 
 
+def _sync_verification_to_supabase(claim: str, verification_data: dict):
+    """Push a single verification to Supabase (idempotent)."""
+    result = _supabase_get("verification_cache", {"claim": f"eq.{claim}"})
+    if not result:
+        _supabase_post("verification_cache", {
+            "claim": claim,
+            "verification_json": verification_data,
+        })
+
+
 def get_cached_verification(claim):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -91,7 +101,13 @@ def get_cached_verification(claim):
     row = c.fetchone()
     conn.close()
     if row:
-        return json.loads(row[0])
+        data = json.loads(row[0])
+        _sync_verification_to_supabase(claim, data)
+        return data
+
+    result = _supabase_get("verification_cache", {"claim": f"eq.{claim}"})
+    if result and len(result) > 0:
+        return result[0].get("verification_json")
     return None
 
 
@@ -112,19 +128,30 @@ def save_verification(claim, verification_data):
 init_db()
 
 
+def _sync_analysis_to_supabase(url: str, video_hash: str, data: dict):
+    """Push a single analysis_cache row to Supabase if not already there."""
+    result = _supabase_get("analysis_cache", {"url": f"eq.{url}"})
+    if not result:
+        _supabase_post("analysis_cache", {
+            "url": url,
+            "video_hash": video_hash or "",
+            "spoken_claim": data.get("spoken_claim"),
+            "written_claim": data.get("written_claim"),
+            "core_news_claim": data.get("core_news_claim"),
+        })
+
+
 def get_cached_analysis_by_url(url):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('SELECT spoken_claim, written_claim, core_news_claim FROM analysis_cache WHERE url = ?', (url,))
+    c.execute('SELECT spoken_claim, written_claim, core_news_claim, video_hash FROM analysis_cache WHERE url = ?', (url,))
     row = c.fetchone()
     conn.close()
 
     if row:
-        return {
-            "spoken_claim": row[0],
-            "written_claim": row[1],
-            "core_news_claim": row[2],
-        }
+        data = {"spoken_claim": row[0], "written_claim": row[1], "core_news_claim": row[2]}
+        _sync_analysis_to_supabase(url, row[3] or "", data)
+        return data
 
     result = _supabase_get("analysis_cache", {"url": f"eq.{url}"})
     if result and len(result) > 0:
@@ -143,16 +170,14 @@ def get_cached_analysis_by_hash(video_hash):
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('SELECT spoken_claim, written_claim, core_news_claim FROM analysis_cache WHERE video_hash = ?', (video_hash,))
+    c.execute('SELECT url, spoken_claim, written_claim, core_news_claim, video_hash FROM analysis_cache WHERE video_hash = ?', (video_hash,))
     row = c.fetchone()
     conn.close()
 
     if row:
-        return {
-            "spoken_claim": row[0],
-            "written_claim": row[1],
-            "core_news_claim": row[2],
-        }
+        data = {"spoken_claim": row[1], "written_claim": row[2], "core_news_claim": row[3]}
+        _sync_analysis_to_supabase(row[0], row[4] or "", data)
+        return data
 
     result = _supabase_get("analysis_cache", {"video_hash": f"eq.{video_hash}"})
     if result and len(result) > 0:
