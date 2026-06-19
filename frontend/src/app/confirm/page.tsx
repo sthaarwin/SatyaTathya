@@ -1,10 +1,10 @@
 'use client'
 
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-export default function ConfirmPage() {
+function ConfirmContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
 
@@ -37,7 +37,7 @@ export default function ConfirmPage() {
           return
         }
 
-        router.replace('/Dashboard.tsx')
+        router.replace('/')
       } catch (e: any) {
         setError(e?.message ?? 'Failed to confirm.')
       } finally {
@@ -60,4 +60,12 @@ export default function ConfirmPage() {
       )}
     </div>
 )
+}
+
+export default function ConfirmPage() {
+  return (
+    <Suspense fallback={<p>Confirming your email</p>}>
+      <ConfirmContent />
+    </Suspense>
+  )
 }
