@@ -23,6 +23,10 @@ def init_db():
     c.execute('DROP TABLE IF EXISTS verification_cache')
     c.execute('''CREATE TABLE IF NOT EXISTS verification_cache
                  (claim TEXT PRIMARY KEY, verification_json TEXT)''')
+    
+    # Create evidence cache (scraped article text keyed by claim)
+    c.execute('''CREATE TABLE IF NOT EXISTS evidence_cache
+                 (claim_hash TEXT PRIMARY KEY, evidence_json TEXT, created_at REAL NOT NULL DEFAULT (strftime('%s','now')))''')
         
     conn.commit()
     conn.close()
@@ -97,11 +101,32 @@ def get_all_cached_analyses():
     conn.close()
     return [{"url": r[0], "spoken_claim": r[1], "written_claim": r[2], "core_news_claim": r[3], "video_hash": r[4]} for r in rows]
 
+def get_cached_evidence(claim_text: str):
+    claim_hash = str(hash(claim_text))
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT evidence_json FROM evidence_cache WHERE claim_hash = ?', (claim_hash,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return json.loads(row[0])
+    return None
+
+def save_evidence_cache(claim_text: str, evidence_data: list):
+    claim_hash = str(hash(claim_text))
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''INSERT OR REPLACE INTO evidence_cache (claim_hash, evidence_json, created_at)
+                 VALUES (?, ?, strftime('%s','now'))''', (claim_hash, json.dumps(evidence_data)))
+    conn.commit()
+    conn.close()
+
 def clear_cache():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('DELETE FROM analysis_cache')
     c.execute('DELETE FROM verification_cache')
+    c.execute('DELETE FROM evidence_cache')
     count = c.rowcount
     conn.commit()
     conn.close()

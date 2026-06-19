@@ -87,6 +87,8 @@ def calculate_weighted_score(findings):
         elif stance == "CONTRADICT":
             contradict_sum += evidence_weight
             total_weight += evidence_weight
+        elif stance == "INDETERMINATE":
+            total_weight += evidence_weight * 0.3
     
     truth_score = (support_sum - contradict_sum) / total_weight if total_weight > 0 else 0.0
 
@@ -520,9 +522,9 @@ Evidence Content: {evidence_text}
 def select_verdict(truth_score: float, confidence: float) -> str:
     if confidence < 0.35:
         return "uncertain"
-    if truth_score >= 0.35:
+    if truth_score >= 0.5:
         return "likely_true"
-    if truth_score <= -0.35:
+    if truth_score <= -0.5:
         return "likely_false"
     return "uncertain"
 
@@ -551,7 +553,17 @@ def verify_claim(core_claim: str, url: str = None, use_firecrawl: bool = False) 
     except Exception as e:
         print(f"[!] ChromaDB search failed: {e}")
     
-    evidence = search_and_scrape_evidence(core_claim, use_firecrawl=use_firecrawl)
+    # Check evidence cache first
+    from services.db_service import get_cached_evidence, save_evidence_cache
+    evidence = get_cached_evidence(core_claim)
+    if evidence:
+        print(f"[+] Using cached evidence ({len(evidence)} items)")
+    else:
+        evidence = search_and_scrape_evidence(core_claim, use_firecrawl=use_firecrawl)
+        if evidence:
+            save_evidence_cache(core_claim, evidence)
+            print(f"[+] Cached {len(evidence)} evidence items")
+    
     working_result["evidence"] = [
         {"title": e.get("title", ""), "domain": e.get("domain", ""), "url": e.get("url", "")}
         for e in evidence
