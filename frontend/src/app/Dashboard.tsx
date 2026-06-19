@@ -60,18 +60,24 @@ export default function Dashboard() {
     darkMode: false,
   });
   const [recentAnalyses, setRecentAnalyses] = useState<HistoryItem[]>([]);
-  const storageKey = 'satyatathyaRecentAnalyses';
 
   useEffect(() => {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return;
-
-    try {
-      const saved = JSON.parse(raw) as HistoryItem[];
-      setRecentAnalyses(saved);
-    } catch {
-      localStorage.removeItem(storageKey);
-    }
+    fetch('/api/analyses/list')
+      .then((r) => r.ok ? r.json() : { analyses: [] })
+      .then((d) => setRecentAnalyses((d.analyses ?? []).map((a: any) => ({
+        id: a.id,
+        url: a.url,
+        verdict: a.verdict || 'Uncertain',
+        score: a.truth_score ?? 0,
+        timestamp: new Date(a.created_at).toLocaleString(),
+        spoken_claim: a.spoken_claim,
+        written_claim: a.written_claim,
+        core_news_claim: a.core_news_claim,
+        evidence_findings: a.evidence_findings,
+        reasoning: a.reasoning,
+        thumbnail: a.thumbnail,
+      }))))
+      .catch(() => {});
   }, []);
 
   const fetchVideoThumbnail = async (videoUrl: string) => {
@@ -136,9 +142,24 @@ export default function Dashboard() {
         thumbnail: thumbnailUrl ?? undefined,
       };
 
+      fetch('/api/analyses/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          spoken_claim: resultData?.spoken_claim,
+          written_claim: resultData?.written_claim,
+          core_news_claim: resultData?.core_news_claim,
+          evidence_findings: resultData?.verification?.evidence_findings,
+          reasoning: resultData?.verification?.reasoning,
+          truth_score: scoreNum,
+          verdict,
+          thumbnail: thumbnailUrl ?? undefined,
+        }),
+      }).catch(() => {});
+
       setRecentAnalyses((prev) => {
         const next = [newHistory, ...prev].slice(0, 8);
-        localStorage.setItem(storageKey, JSON.stringify(next));
         return next;
       });
     } catch (err: unknown) {
@@ -173,7 +194,7 @@ export default function Dashboard() {
 
   const clearHistory = () => {
     setRecentAnalyses([]);
-    localStorage.removeItem(storageKey);
+    fetch('/api/analyses/clear', { method: 'POST' }).catch(() => {});
   };
 
   const score = result?.verification?.truth_score;
