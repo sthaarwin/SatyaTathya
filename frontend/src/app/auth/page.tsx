@@ -240,7 +240,7 @@ export default function AuthPage() {
                 fontSize: '28px', fontWeight: 600, color: '#1b1c1a',
                 marginBottom: '8px', lineHeight: 1.3,
               }}>
-                {mode === 'login' ? 'Welcome back, Editor.' : 'Join the Editorial Desk.'}
+                {mode === 'login' ? 'Welcome back, User.' : 'Join as a User.'}
               </h2>
               <p style={{ fontFamily: '"Plus Jakarta Sans", sans-serif', fontSize: '15px', color: '#52443d', lineHeight: 1.6 }}>
                 {mode === 'login'
