@@ -277,7 +277,7 @@ export default function AuthPage() {
               {mode === 'signup' && (
                 <div>
                   <label style={labelStyle} htmlFor="fullName">Full Name</label>
-                  <div style={inputWrapStyle}>
+                  <div {...inputWrapProps}>
                     <span className="material-symbols-outlined" style={iconStyle}>person</span>
                     <input
                       id="fullName" name="fullName" type="text"
@@ -292,7 +292,7 @@ export default function AuthPage() {
 
               <div>
                 <label style={labelStyle} htmlFor="email">Email Address</label>
-                <div style={inputWrapStyle}>
+                <div {...inputWrapProps}>
                   <span className="material-symbols-outlined" style={iconStyle}>mail</span>
                   <input
                     id="email" name="email" type="email"
@@ -306,7 +306,7 @@ export default function AuthPage() {
 
               <div>
                 <label style={labelStyle} htmlFor="password">Password</label>
-                <div style={inputWrapStyle}>
+                <div {...inputWrapProps}>
                   <span className="material-symbols-outlined" style={iconStyle}>lock</span>
                   <input
                     id="password" name="password" type="password"
@@ -326,7 +326,7 @@ export default function AuthPage() {
               {mode === 'signup' && (
                 <div>
                   <label style={labelStyle} htmlFor="confirmPassword">Confirm Password</label>
-                  <div style={inputWrapStyle}>
+                  <div {...inputWrapProps}>
                     <span className="material-symbols-outlined" style={iconStyle}>lock_reset</span>
                     <input
                       id="confirmPassword" name="confirmPassword" type="password"
@@ -462,6 +462,8 @@ const inputWrapStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
 };
+
+const inputWrapProps = { style: inputWrapStyle, suppressHydrationWarning: true } as const;
 
 const iconStyle: React.CSSProperties = {
   position: 'absolute', left: '14px',
